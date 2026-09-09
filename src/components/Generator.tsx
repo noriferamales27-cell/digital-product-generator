@@ -7,7 +7,7 @@ import { downloadDocx, downloadText, slug, streamStage } from "@/lib/stream-clie
 import type { AudienceResult, LaunchResult, Opportunity, ResearchResult } from "@/lib/schemas";
 import { PLATFORMS, platformByName } from "@/lib/platforms";
 
-type Step = 1 | 2 | 3 | 4;
+type Step = 1 | 2 | 3;
 
 type Run = {
   id: string;
@@ -26,6 +26,7 @@ type Run = {
   author: string;
   voice: string;
   length: "short" | "standard" | "long";
+  goal: number;
 };
 
 type LogLine = { kind: "q" | "s" | "e"; text: string };
@@ -39,7 +40,7 @@ const QUICK_STARTS: { label: string; category: string; audience: string; region:
   { label: "Planners and printables", category: "Printable planners and trackers", audience: "Busy professionals and parents", region: "global" },
 ];
 
-const STORAGE = "dpg.runs.v1";
+const STORAGE = "dpg.runs.v2";
 const PASS = "dpg.password";
 
 const newRun = (): Run => ({
@@ -53,6 +54,7 @@ const newRun = (): Run => ({
   author: "",
   voice: "",
   length: "standard",
+  goal: 500,
 });
 
 function load<T>(key: string, fallback: T): T {
@@ -74,6 +76,7 @@ export default function Generator() {
   const [password, setPassword] = useState("");
   const [draft, setDraft] = useState("");
   const [autopilot, setAutopilot] = useState(false);
+  const [showCategory, setShowCategory] = useState(false);
   const [status, setStatus] = useState<{ mock: boolean; passwordRequired: boolean } | null>(null);
   const draftRef = useRef<HTMLDivElement>(null);
 
@@ -129,22 +132,12 @@ export default function Generator() {
   }
 
   const doResearch = async (base: Run = run): Promise<Run | null> => {
-    if (base.mode === "category" && !base.category.trim()) { setError("Type a category first, or switch to trending mode."); return null; }
+    if (base.mode === "category" && !base.category.trim()) { setError("Type a category first, or search top products instead."); return null; }
     try {
       const research = await runStep<ResearchResult>("/api/research", {
         mode: base.mode, category: base.category, audience: base.audienceHint, region: base.region, notes: base.notes,
       });
-      const next = { ...base, research, selected: undefined, audience: undefined, product: undefined, launch: undefined };
-      save(next);
-      return next;
-    } catch { return null; }
-  };
-
-  const doAudience = async (base: Run = run): Promise<Run | null> => {
-    if (!base.selected) return null;
-    try {
-      const audience = await runStep<AudienceResult>("/api/audience", { opportunity: base.selected, region: base.region });
-      const next = { ...base, audience };
+      const next = { ...base, research, selected: undefined, audience: undefined, product: undefined, launch: undefined, publishOn: undefined };
       save(next);
       return next;
     } catch { return null; }
@@ -166,20 +159,26 @@ export default function Generator() {
     } catch { return null; }
   };
 
-  const doLaunch = async (base: Run = run): Promise<Run | null> => {
+  /** Step 3 in one click: find the buyers, then build the launch kit with platform advice. */
+  const doPublish = async (base: Run = run): Promise<Run | null> => {
     if (!base.selected || !base.product) return null;
-    const outline = base.product.markdown.split("\n").filter((l) => /^#{1,3}\s/.test(l) || /^-\s/.test(l)).slice(0, 60).join("\n");
+    let cur = base;
     try {
+      const audience = await runStep<AudienceResult>("/api/audience", { opportunity: cur.selected, region: cur.region });
+      cur = { ...cur, audience };
+      save(cur);
+      const outline = cur.product!.markdown.split("\n").filter((l) => /^#{1,3}\s/.test(l) || /^-\s/.test(l)).slice(0, 60).join("\n");
       const launch = await runStep<LaunchResult>("/api/launch", {
-        opportunity: base.selected, audience: base.audience, product_title: base.product.title, product_outline: outline || base.product.markdown.slice(0, 3000), brand: base.author,
+        opportunity: cur.selected, audience: cur.audience, product_title: cur.product!.title, product_outline: outline || cur.product!.markdown.slice(0, 3000), brand: cur.author,
       });
-      const next = { ...base, launch };
-      save(next);
-      return next;
+      const suggested = suggestPlatform(launch);
+      cur = { ...cur, launch, publishOn: cur.publishOn ?? suggested };
+      save(cur);
+      return cur;
     } catch { return null; }
   };
 
-  /** One click: research, pick the top ICE score, find the audience, write it, build the launch kit. */
+  /** One click: search, pick the top score, create, publish. */
   const doAutopilot = async () => {
     setAutopilot(true);
     try {
@@ -189,53 +188,55 @@ export default function Generator() {
       cur = { ...cur, selected: top };
       save(cur);
       setStep(2);
-      cur = await doAudience(cur);
-      if (!cur) return;
-      setStep(3);
       cur = await doGenerate(cur);
       if (!cur) return;
-      setStep(4);
-      await doLaunch(cur);
+      setStep(3);
+      await doPublish(cur);
     } finally {
       setAutopilot(false);
     }
   };
 
+  const pick = (op: Opportunity) => { save({ ...run, selected: op, product: undefined, launch: undefined, audience: undefined, publishOn: undefined }); setStep(2); };
+
   const stepState = (n: Step) => {
-    const done = n === 1 ? !!run.research : n === 2 ? !!run.audience : n === 3 ? !!run.product : !!run.launch;
+    const done = n === 1 ? !!run.selected : n === 2 ? !!run.product : !!run.launch;
     return `${step === n ? "active" : ""} ${done ? "done" : ""}`;
   };
 
   const sortedOpps = useMemo(() => (run.research?.opportunities ?? []).slice().sort((a, b) => b.ice.total - a.ice.total), [run.research]);
+  const price = run.launch?.price.regular ?? run.selected?.price_high ?? 0;
+  const salesNeeded = price > 0 ? Math.ceil(run.goal / price) : 0;
 
   return (
     <div className="shell">
       <header className="topbar">
         <div>
           <div className="wordmark"><span className="n">Norie</span><span className="d">Digi</span> <span style={{ color: "#475569", fontSize: 16 }}>Product Generator</span></div>
-          <div className="hint">Research what sells, find the buyers, write the product, ship the launch kit.</div>
+          <div className="hint">Find what sells, create a professional product, publish where the buyers are.</div>
         </div>
         <div className="right">
           <input type="password" placeholder="App password" value={password} onChange={(e) => setPassword(e.target.value)} style={{ width: 160 }} aria-label="App password" />
           <Link className="btn btn-outline btn-sm" href="/playbook">Playbook</Link>
-          <button className="btn btn-outline btn-sm" onClick={() => { setRun(newRun()); setStep(1); setError(""); setLog([]); }}>New run</button>
+          <button className="btn btn-outline btn-sm" onClick={() => { setRun(newRun()); setStep(1); setError(""); setLog([]); }}>New</button>
         </div>
       </header>
 
       {status?.mock && (
         <div className="notice" style={{ marginTop: 0, marginBottom: 20 }}>
-          <b>Demo mode.</b> This deployment has no Anthropic API key, so every step returns sample data to show the flow. Add <code>ANTHROPIC_API_KEY</code> (and <code>APP_PASSWORD</code>) in Vercel to run real research.
+          <b>Demo mode.</b> No Anthropic API key is set, so every step shows sample data. Add <code>ANTHROPIC_API_KEY</code> and <code>APP_PASSWORD</code> in Vercel to run real research.
         </div>
       )}
       {status && !status.passwordRequired && !status.mock && (
         <div className="notice" style={{ marginTop: 0, marginBottom: 20 }}><b>Open access.</b> Set <code>APP_PASSWORD</code> in Vercel so only you can spend your API credits.</div>
       )}
-      <ol className="steps">
-        {([1, 2, 3, 4] as Step[]).map((n) => (
+
+      <ol className="steps three">
+        {([1, 2, 3] as Step[]).map((n) => (
           <li key={n} className={stepState(n)}>
             <button onClick={() => setStep(n)}>
               <div className="num">STEP {n}</div>
-              <div>{["Research the market", "Find the buyers", "Write the product", "Launch kit"][n - 1]}</div>
+              <div>{["Search top products", "Create the product", "Publish and sell"][n - 1]}</div>
             </button>
           </li>
         ))}
@@ -246,77 +247,67 @@ export default function Generator() {
           {step === 1 && (
             <section className="card">
               <div className="eyebrow">Step 1</div>
-              <h2>What should we make?</h2>
-              <p className="hint">The generator searches live marketplaces and communities, scores what it finds, and tells you how long each product takes to make. Nothing here costs money until something sells.</p>
-              <div className="modes" role="radiogroup" aria-label="Research mode">
-                <button type="button" className={`mode ${run.mode === "trending" ? "on" : ""}`} onClick={() => setRun({ ...run, mode: "trending" })} aria-pressed={run.mode === "trending"}>
-                  <b>What is selling right now</b>
-                  <span>Scan every category for this month's top products</span>
-                </button>
-                <button type="button" className={`mode ${run.mode === "category" ? "on" : ""}`} onClick={() => setRun({ ...run, mode: "category" })} aria-pressed={run.mode === "category"}>
-                  <b>A category I choose</b>
-                  <span>Go deep on one niche</span>
-                </button>
+              <h2>What is selling <span className="accent">right now</span>?</h2>
+              <p className="hint">One click searches live marketplaces and communities across every category, scores what it finds, and shows how long each product takes to make. Nothing costs money until something sells.</p>
+              <div className="actions" style={{ marginTop: 14 }}>
+                <button className="btn btn-primary btn-lg" onClick={() => { setRun({ ...run, mode: "trending" }); doResearch({ ...run, mode: "trending" }); }} disabled={busy}>{busy && !autopilot ? <span className="spin" /> : null} Search top digital products</button>
+                <button className="btn btn-gold btn-lg" onClick={doAutopilot} disabled={busy} title="Search, pick the best score, create the product, and build the launch in one go">{autopilot ? <span className="spin" /> : null} Do it all for me</button>
               </div>
-              {run.mode === "category" && (<>
-              <label htmlFor="cat">Category or niche</label>
-              <input id="cat" type="text" value={run.category} onChange={(e) => setRun({ ...run, category: e.target.value })} placeholder="e.g. HR templates for small businesses, or meal planning for busy parents" />
-              <div className="chips" aria-label="Quick starts">
-                {QUICK_STARTS.map((q) => (
-                  <button key={q.label} type="button" className="chip" onClick={() => setRun({ ...run, category: q.category, audienceHint: q.audience, region: q.region })}>{q.label}</button>
-                ))}
-              </div>
-              </>)}
-              <div className="row">
-                <div>
-                  <label htmlFor="aud">Audience (optional)</label>
-                  <input id="aud" type="text" value={run.audienceHint} onChange={(e) => setRun({ ...run, audienceHint: e.target.value })} placeholder="e.g. Filipino virtual assistants" />
+              <button type="button" className="linklike" onClick={() => setShowCategory((v) => !v)}>{showCategory ? "Hide category search" : "Or search a category I choose"}</button>
+              {showCategory && (
+                <div className="panel" style={{ marginTop: 10 }}>
+                  <label htmlFor="cat">Category or niche</label>
+                  <input id="cat" type="text" value={run.category} onChange={(e) => setRun({ ...run, category: e.target.value, mode: "category" })} placeholder="e.g. HR templates for small businesses, or meal planning for busy parents" />
+                  <div className="chips" aria-label="Quick starts">
+                    {QUICK_STARTS.map((q) => (
+                      <button key={q.label} type="button" className="chip" onClick={() => setRun({ ...run, mode: "category", category: q.category, audienceHint: q.audience, region: q.region })}>{q.label}</button>
+                    ))}
+                  </div>
+                  <div className="row">
+                    <div>
+                      <label htmlFor="aud">Audience (optional)</label>
+                      <input id="aud" type="text" value={run.audienceHint} onChange={(e) => setRun({ ...run, audienceHint: e.target.value })} placeholder="e.g. Filipino virtual assistants" />
+                    </div>
+                    <div>
+                      <label htmlFor="reg">Region or market</label>
+                      <input id="reg" type="text" value={run.region} onChange={(e) => setRun({ ...run, region: e.target.value })} placeholder="global, UAE, Philippines, US" />
+                    </div>
+                  </div>
+                  <div className="actions">
+                    <button className="btn btn-outline" onClick={() => doResearch({ ...run, mode: "category" })} disabled={busy || !run.category.trim()}>Research this category</button>
+                  </div>
                 </div>
-                <div>
-                  <label htmlFor="reg">Region or market</label>
-                  <input id="reg" type="text" value={run.region} onChange={(e) => setRun({ ...run, region: e.target.value })} placeholder="global, UAE, Philippines, US" />
-                </div>
-              </div>
-              <label htmlFor="notes">Anything the researcher should know (optional)</label>
-              <textarea id="notes" value={run.notes} onChange={(e) => setRun({ ...run, notes: e.target.value })} placeholder="Your real experience, products you already sell, formats you don't want." />
-              <div className="actions">
-                <button className="btn btn-primary" onClick={() => doResearch()} disabled={busy}>{busy ? <span className="spin" /> : null} {run.mode === "trending" ? "Find what is selling now" : "Research this category"}</button>
-              </div>
-              <div className="auto">
-                <b>Autopilot.</b> Research, pick the best-scoring opportunity, find the buyers, write the product, and build the launch kit in one go. Fill in the author and voice in Step 3 first if you want the product written as you.
-                <div className="actions" style={{ marginTop: 10 }}>
-                  <button className="btn btn-gold" onClick={doAutopilot} disabled={busy || (run.mode === "category" && !run.category.trim())}>{autopilot ? <span className="spin" /> : null} Run everything</button>
-                </div>
-              </div>
+              )}
               <Log lines={log} busy={busy} />
               {error && <div className="error">{error}</div>}
 
               {run.research && (
                 <div style={{ marginTop: 24 }}>
-                  <h3>What is selling in {run.research.category}</h3>
+                  <h3>{run.research.category === "Trending across categories" ? "What is selling this month" : `What is selling in ${run.research.category}`}</h3>
                   <p>{run.research.summary}</p>
                   <div>{run.research.best_platforms.map((p) => <span className="pill" key={p}>{p}</span>)}</div>
-                  <h3 style={{ marginTop: 20 }}>Opportunities, best first. Pick one.</h3>
+                  <h3 style={{ marginTop: 20 }}>Top products to make. Choose one.</h3>
                   <p className="hint">Score is impact, confidence, and ease out of 30. Time is a realistic estimate for one person with this generator.</p>
-                  {sortedOpps.map((op) => (
-                    <div key={op.name} className={`opp ${run.selected?.name === op.name ? "selected" : ""}`} onClick={() => save({ ...run, selected: op })} role="button" tabIndex={0}>
-                      <div className="head"><h3>{op.name}</h3><span className="score">ICE {op.ice.total}</span></div>
-                      <div><span className="pill">{op.category}</span><span className="pill">{op.format}</span><span className="pill">{op.price_low} to {op.price_high} {op.currency}</span><span className="pill time">about {op.time_to_create_hours} h to make</span><span className="pill">I {op.ice.impact} · C {op.ice.confidence} · E {op.ice.ease}</span></div>
+                  {sortedOpps.map((op, i) => (
+                    <div key={op.name} className={`opp ${run.selected?.name === op.name ? "selected" : ""}`}>
+                      <div className="head"><h3>{i === 0 ? "★ " : ""}{op.name}</h3><span className="score">ICE {op.ice.total}</span></div>
+                      <div><span className="pill">{op.category}</span><span className="pill">{op.format}</span><span className="pill">{op.price_low} to {op.price_high} {op.currency}</span><span className="pill time">about {op.time_to_create_hours} h to make</span></div>
                       <p className="kv"><b>Why now:</b> {op.why_now}</p>
                       <p className="kv"><b>For:</b> {op.audience}</p>
                       <p className="kv"><b>Promise:</b> {op.promise}</p>
                       <p className="kv"><b>Demand:</b> {op.demand_signal}</p>
-                      <p className="kv"><b>Competition:</b> {op.competition}</p>
                       <p className="kv"><b>The gap:</b> {op.gap}</p>
-                      <div className="ev">{op.evidence.map((e, i) => <div key={i}><a href={e.url} target="_blank" rel="noopener">{e.title}</a>: {e.note}</div>)}</div>
+                      <div className="ev">{op.evidence.map((e, j) => <div key={j}><a href={e.url} target="_blank" rel="noopener">{e.title}</a>: {e.note}</div>)}</div>
+                      <div className="actions" style={{ marginTop: 12 }}>
+                        <button className="btn btn-primary btn-sm" onClick={() => pick(op)}>Create this product</button>
+                      </div>
                     </div>
                   ))}
                   {run.research.avoid.length > 0 && (
-                    <details><summary>Ideas to avoid in this category</summary><ul>{run.research.avoid.map((a) => <li key={a}>{a}</li>)}</ul></details>
+                    <details><summary>Ideas to avoid right now</summary><ul>{run.research.avoid.map((a) => <li key={a}>{a}</li>)}</ul></details>
                   )}
                   <div className="actions">
-                    <button className="btn btn-primary" disabled={!run.selected} onClick={() => setStep(2)}>Find the buyers for this one</button>
-                    <button className="btn btn-outline" onClick={() => downloadText(`research-${slug(run.category)}.json`, JSON.stringify(run.research, null, 2), "application/json")}>Download research</button>
+                    <button className="btn btn-outline" onClick={() => downloadText(`research-${slug(run.research!.category)}.json`, JSON.stringify(run.research, null, 2), "application/json")}>Download research</button>
                   </div>
                 </div>
               )}
@@ -326,37 +317,18 @@ export default function Generator() {
           {step === 2 && (
             <section className="card">
               <div className="eyebrow">Step 2</div>
-              <h2>Where are the buyers for <span className="accent">{run.selected?.name ?? "this product"}</span>?</h2>
-              {!run.selected && <div className="notice">Pick an opportunity in Step 1 first.</div>}
+              <h2>Create <span className="accent">{run.selected?.name ?? "the product"}</span></h2>
+              {!run.selected && <div className="notice">Choose a product in Step 1 first.</div>}
               {run.selected && (
                 <>
-                  <p className="hint">Finds the named groups, subreddits, hashtags, search terms, and marketplaces where these buyers already are, plus the words they use and the messages to send.</p>
-                  <div className="actions">
-                    <button className="btn btn-primary" onClick={() => doAudience()} disabled={busy}>{busy ? <span className="spin" /> : null} {run.audience ? "Research again" : "Find the audience"}</button>
-                    <button className="btn btn-outline" onClick={() => setStep(3)}>Skip to writing</button>
-                  </div>
-                  <Log lines={log} busy={busy} />
-                  {error && <div className="error">{error}</div>}
-                  {run.audience && <AudienceView a={run.audience} onNext={() => setStep(3)} onDownload={() => downloadText(`audience-${slug(run.selected!.name)}.json`, JSON.stringify(run.audience, null, 2), "application/json")} />}
-                </>
-              )}
-            </section>
-          )}
-
-          {step === 3 && (
-            <section className="card">
-              <div className="eyebrow">Step 3</div>
-              <h2>Write <span className="accent">{run.selected?.name ?? "the product"}</span></h2>
-              {!run.selected && <div className="notice">Pick an opportunity in Step 1 first.</div>}
-              {run.selected && (
-                <>
+                  <p className="hint">Writes the complete, sellable product: cover page, what you get, every template and example filled in, how to use it. About {run.selected.time_to_create_hours} hours of your time including a read-through. Download as Word or Markdown.</p>
                   <div className="row">
                     <div>
                       <label htmlFor="author">Author or brand name</label>
                       <input id="author" type="text" value={run.author} onChange={(e) => setRun({ ...run, author: e.target.value })} placeholder="Norife Ramales, NorieDigi" />
                     </div>
                     <div>
-                      <label htmlFor="len">Length</label>
+                      <label htmlFor="len">Size</label>
                       <select id="len" value={run.length} onChange={(e) => setRun({ ...run, length: e.target.value as Run["length"] })}>
                         <option value="short">Short: checklist, prompt pack, or template set</option>
                         <option value="standard">Standard: guide or template pack</option>
@@ -364,24 +336,26 @@ export default function Generator() {
                       </select>
                     </div>
                   </div>
-                  <label htmlFor="voice">Voice notes and real experience to include (optional)</label>
+                  <label htmlFor="voice">Your real experience to include (optional, makes it yours)</label>
                   <textarea id="voice" value={run.voice} onChange={(e) => setRun({ ...run, voice: e.target.value })} placeholder="First person, plain words. 15 years running HR in the UAE. Include the onboarding mistake with the visa paperwork." />
                   <div className="actions">
-                    <button className="btn btn-primary" onClick={() => doGenerate()} disabled={busy}>{busy ? <span className="spin" /> : null} {run.product ? "Write it again" : "Write the product"}</button>
+                    <button className="btn btn-primary btn-lg" onClick={() => doGenerate()} disabled={busy}>{busy ? <span className="spin" /> : null} {run.product ? "Create it again" : "Create the product"}</button>
+                    <button className="btn btn-outline" onClick={() => setStep(1)}>Back to products</button>
                   </div>
                   <Log lines={log} busy={busy} />
                   {error && <div className="error">{error}</div>}
                   {(draft || run.product) && (
                     <div style={{ marginTop: 20 }}>
-                      <div className="actions" style={{ marginTop: 0, marginBottom: 12 }}>
-                        {run.product && !draft && (
-                          <>
-                            <button className="btn btn-gold" onClick={() => downloadDocx(run.product!.title, run.author, run.product!.markdown, password).catch((e) => setError(String(e.message)))}>Download .docx</button>
+                      {run.product && !draft && (
+                        <div className="panel" style={{ marginBottom: 14 }}>
+                          <b>Ready.</b> {run.product.markdown.split(/\s+/).length.toLocaleString()} words. Read it once, fix anything that is not you, then publish.
+                          <div className="actions" style={{ marginTop: 10 }}>
+                            <button className="btn btn-gold" onClick={() => downloadDocx(run.product!.title, run.author, run.product!.markdown, password).catch((e) => setError(String(e.message)))}>Download Word (.docx)</button>
                             <button className="btn btn-outline" onClick={() => downloadText(`${slug(run.product!.title)}.md`, run.product!.markdown)}>Download .md</button>
-                            <button className="btn btn-primary" onClick={() => setStep(4)}>Build the launch kit</button>
-                          </>
-                        )}
-                      </div>
+                            <button className="btn btn-primary" onClick={() => setStep(3)}>Publish and sell it</button>
+                          </div>
+                        </div>
+                      )}
                       <div className="md-box" ref={draftRef}><Markdown text={draft || run.product!.markdown} /></div>
                     </div>
                   )}
@@ -390,20 +364,30 @@ export default function Generator() {
             </section>
           )}
 
-          {step === 4 && (
+          {step === 3 && (
             <section className="card">
-              <div className="eyebrow">Step 4</div>
-              <h2>Launch kit for <span className="accent">{run.product?.title ?? "the product"}</span></h2>
-              {!run.product && <div className="notice">Write the product in Step 3 first.</div>}
+              <div className="eyebrow">Step 3</div>
+              <h2>Publish and sell <span className="accent">{run.product?.title ?? "the product"}</span></h2>
+              {!run.product && <div className="notice">Create the product in Step 2 first.</div>}
               {run.product && (
                 <>
-                  <p className="hint">Pricing, sales page, marketplace listings, five launch emails, social posts for the channels found in Step 2, and a 30-day calendar.</p>
+                  <p className="hint">One click finds where the buyers are, sets the price, writes the listings, emails and posts, and suggests the platform to publish on first. Free-to-start platforms come first.</p>
                   <div className="actions">
-                    <button className="btn btn-primary" onClick={() => doLaunch()} disabled={busy}>{busy ? <span className="spin" /> : null} {run.launch ? "Build it again" : "Build the launch kit"}</button>
+                    <button className="btn btn-primary btn-lg" onClick={() => doPublish()} disabled={busy}>{busy ? <span className="spin" /> : null} {run.launch ? "Build it again" : "Find buyers and build the launch"}</button>
                   </div>
                   <Log lines={log} busy={busy} />
                   {error && <div className="error">{error}</div>}
-                  {run.launch && <LaunchView l={run.launch} chosen={run.publishOn} onChoose={(p) => save({ ...run, publishOn: p })} onDownload={() => downloadText(`launch-kit-${slug(run.product!.title)}.md`, launchToMarkdown(run.launch!))} onDocx={() => downloadDocx(`${run.product!.title} launch kit`, run.author, launchToMarkdown(run.launch!), password).catch((e) => setError(String(e.message)))} />}
+                  {run.launch && (
+                    <>
+                      <Suggestion l={run.launch} chosen={run.publishOn} />
+                      <LaunchView l={run.launch} chosen={run.publishOn} onChoose={(p) => save({ ...run, publishOn: p })} onDownload={() => downloadText(`launch-kit-${slug(run.product!.title)}.md`, launchToMarkdown(run.launch!))} onDocx={() => downloadDocx(`${run.product!.title} launch kit`, run.author, launchToMarkdown(run.launch!), password).catch((e) => setError(String(e.message)))} />
+                      {run.audience && (
+                        <details style={{ marginTop: 16 }}><summary>Where the buyers are ({run.audience.channels.length} channels) and what to say</summary>
+                          <AudienceView a={run.audience} onNext={() => {}} onDownload={() => downloadText(`audience-${slug(run.selected!.name)}.json`, JSON.stringify(run.audience, null, 2), "application/json")} hideNext />
+                        </details>
+                      )}
+                    </>
+                  )}
                 </>
               )}
             </section>
@@ -412,33 +396,62 @@ export default function Generator() {
 
         <aside className="side">
           <div className="card">
+            <h3>Money plan</h3>
+            <label htmlFor="goal">Monthly goal (USD)</label>
+            <input id="goal" type="text" inputMode="numeric" value={run.goal} onChange={(e) => setRun({ ...run, goal: Number(e.target.value.replace(/[^0-9]/g, "")) || 0 })} />
+            {price > 0 ? (
+              <p className="kv" style={{ marginTop: 10 }}>At <b>{price} {run.launch?.price.currency ?? run.selected?.currency ?? "USD"}</b> that is <b>{salesNeeded} sales a month</b>, about {Math.ceil(salesNeeded / 4.3)} a week. Three products at this level triple the reach for the same audience.</p>
+            ) : (
+              <p className="hint" style={{ marginTop: 10 }}>Pick a product to see how many sales reach your goal.</p>
+            )}
+          </div>
+          <div className="card">
             <h3>This run</h3>
             <table className="grid">
               <tbody>
-                <tr><th>Category</th><td>{run.mode === "trending" ? "Trending across categories" : run.category || "not set"}</td></tr>
-                <tr><th>Picked</th><td>{run.selected?.name ?? "none yet"}</td></tr>
+                <tr><th>Search</th><td>{run.mode === "trending" ? "Top products this month" : run.category || "not set"}</td></tr>
+                <tr><th>Product</th><td>{run.selected?.name ?? "none yet"}</td></tr>
                 <tr><th>Time to make</th><td>{run.selected ? `about ${run.selected.time_to_create_hours} hours` : "..."}</td></tr>
-                <tr><th>Publish on</th><td>{run.publishOn ?? "choose in Step 4"}</td></tr>
-                <tr><th>Audience</th><td>{run.audience ? `${run.audience.channels.length} channels` : "not yet"}</td></tr>
-                <tr><th>Product</th><td>{run.product ? `${run.product.markdown.split(/\s+/).length.toLocaleString()} words` : "not yet"}</td></tr>
+                <tr><th>Created</th><td>{run.product ? `${run.product.markdown.split(/\s+/).length.toLocaleString()} words` : "not yet"}</td></tr>
+                <tr><th>Publish on</th><td>{run.publishOn ?? "decided in Step 3"}</td></tr>
                 <tr><th>Launch kit</th><td>{run.launch ? "ready" : "not yet"}</td></tr>
               </tbody>
             </table>
           </div>
           <div className="card">
-            <h3>Past runs</h3>
-            {runs.length === 0 && <p className="hint">Runs are saved in this browser.</p>}
+            <h3>Past products</h3>
+            {runs.length === 0 && <p className="hint">Saved in this browser.</p>}
             <ul className="runs">
               {runs.map((r) => (
                 <li key={r.id}>
-                  <button onClick={() => { setRun(r); setStep(r.launch ? 4 : r.product ? 3 : r.audience ? 2 : 1); setError(""); setLog([]); }}>{r.selected?.name ?? r.category ?? "Untitled"}</button>
-                  <button className="del" onClick={() => removeRun(r.id)} aria-label="Delete run">remove</button>
+                  <button onClick={() => { setRun(r); setStep(r.launch ? 3 : r.product ? 2 : 1); setError(""); setLog([]); }}>{r.selected?.name ?? (r.mode === "trending" ? "Top products search" : r.category) ?? "Untitled"}</button>
+                  <button className="del" onClick={() => removeRun(r.id)} aria-label="Delete">remove</button>
                 </li>
               ))}
             </ul>
           </div>
         </aside>
       </div>
+    </div>
+  );
+}
+
+function suggestPlatform(l: LaunchResult): string | undefined {
+  const order = { free: 0, "pay per listing": 1, "monthly fee": 2 };
+  const best = l.where_to_sell.filter((w) => w.role !== "skip").slice().sort((a, b) => order[a.upfront_cost] - order[b.upfront_cost] || a.priority - b.priority)[0];
+  if (!best) return undefined;
+  return platformByName(best.platform)?.name ?? best.platform;
+}
+
+function Suggestion({ l, chosen }: { l: LaunchResult; chosen?: string }) {
+  const name = suggestPlatform(l);
+  const rec = l.where_to_sell.find((w) => (platformByName(w.platform)?.name ?? w.platform) === name);
+  if (!name || !rec) return null;
+  return (
+    <div className="auto" style={{ marginTop: 20 }}>
+      <b>Our suggestion: publish on {name} first.</b> {rec.why} It is {rec.upfront_cost === "free" ? "free to start" : rec.upfront_cost} and takes about {rec.setup_minutes} minutes. {rec.fee_note}
+      {chosen && chosen !== name && <div className="hint" style={{ marginTop: 6 }}>You picked {chosen} instead. The steps below follow your choice.</div>}
+      <div className="hint" style={{ marginTop: 6 }}>Launch price {l.price.launch} {l.price.currency} for 72 hours, then {l.price.regular} {l.price.currency}. Next offer: {l.upsell_path}</div>
     </div>
   );
 }
@@ -453,7 +466,7 @@ function Log({ lines, busy }: { lines: LogLine[]; busy: boolean }) {
   );
 }
 
-function AudienceView({ a, onNext, onDownload }: { a: AudienceResult; onNext: () => void; onDownload: () => void }) {
+function AudienceView({ a, onNext, onDownload, hideNext }: { a: AudienceResult; onNext: () => void; onDownload: () => void; hideNext?: boolean }) {
   return (
     <div style={{ marginTop: 20 }}>
       <div className="panel">
@@ -480,7 +493,7 @@ function AudienceView({ a, onNext, onDownload }: { a: AudienceResult; onNext: ()
       <details><summary>One-week posting plan</summary><p>{a.posting_plan}</p></details>
       <details><summary>Sources</summary><div className="ev">{a.evidence.map((e, i) => <div key={i}><a href={e.url} target="_blank" rel="noopener">{e.title}</a>: {e.note}</div>)}</div></details>
       <div className="actions">
-        <button className="btn btn-primary" onClick={onNext}>Write the product</button>
+        {!hideNext && <button className="btn btn-primary" onClick={onNext}>Write the product</button>}
         <button className="btn btn-outline" onClick={onDownload}>Download audience research</button>
       </div>
     </div>

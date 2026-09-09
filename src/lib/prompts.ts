@@ -102,6 +102,14 @@ Format rules:
 - For courses and email courses: every lesson is written in full, not summarised.
 - End with a short "How to use this" section and a "What to do next" section.
 - No filler introductions, no "in today's fast-paced world". Start with the useful part.
+
+Professional standard (the buyer is paying; this must look and read like a product from an established seller):
+- After the title, add a subtitle line in italics with the promise, then a line "By [author]" if an author is given, then a short "What you get" bullet list (4 to 6 items) so the buyer sees the value on page one.
+- Every section delivers something usable: a template, a script, a checklist, a worked example, or a decision rule. No section is only explanation.
+- Include at least one worked example per major section showing the template or prompt filled in for a realistic case.
+- Use consistent structure across sections so the product feels designed, not assembled.
+- Numbers, names, and claims must be plausible and clearly marked as examples where they are examples. Never present invented statistics as facts.
+- Before finishing, silently check: every placeholder is in [square brackets], every template is complete, the table of contents matches the headings, and nothing says "insert here" without the actual text. Fix anything that fails, then output only the product.
 ${author ? `- The author is ${author}. Write in first person as them.` : ""}
 ${voice ? `- Voice and style notes from the author: ${voice}` : ""}
 

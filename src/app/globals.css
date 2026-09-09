@@ -142,3 +142,8 @@ summary { cursor: pointer; font-weight: 600; font-size: 14px; }
 .platform:focus-visible { outline: 2px solid var(--primary); }
 .cost { font-size: 11.5px; border-radius: 100px; padding: 2px 8px; background: var(--muted); color: #475569; white-space: nowrap; }
 .cost.free { background: #ECFDF3; color: var(--ok); }
+
+.steps.three { grid-template-columns: repeat(3, 1fr); }
+@media (max-width: 900px) { .steps.three { grid-template-columns: 1fr; } }
+.btn-lg { font-size: 15px; padding: 14px 22px; }
+.linklike { all: unset; cursor: pointer; color: var(--primary); font-size: 13.5px; text-decoration: underline; margin-top: 14px; display: inline-block; }
