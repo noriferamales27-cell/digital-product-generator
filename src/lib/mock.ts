@@ -9,6 +9,7 @@ export const mockResearch = (category: string): ResearchResult => ({
   opportunities: [
     {
       name: "Onboarding Checklist Pack for Small Teams",
+      category: "HR templates",
       format: "template pack",
       audience: "Owners of 10 to 50 person companies without an HR manager",
       promise: "A new hire's first two weeks planned in an afternoon",
@@ -16,6 +17,8 @@ export const mockResearch = (category: string): ResearchResult => ({
       demand_signal: "Mock: 1,200+ Etsy listings for onboarding templates, top sellers with 300+ reviews",
       competition: "Many generic checklists. Few are written for owners doing HR themselves.",
       gap: "Written for a founder, not an HR department. Includes the messages to send, not just the tasks.",
+      why_now: "Mock: September hiring season, owners search for onboarding help",
+      time_to_create_hours: 3,
       ice: { impact: 8, confidence: 8, ease: 9, total: 25 },
       evidence: [
         { title: "Etsy search: onboarding checklist", url: "https://www.etsy.com/search?q=onboarding+checklist", note: "Mock evidence" },
@@ -24,6 +27,7 @@ export const mockResearch = (category: string): ResearchResult => ({
     },
     {
       name: "AI Prompt System for Client Emails",
+      category: "AI prompt packs",
       format: "prompt pack",
       audience: "Freelancers and virtual assistants handling client inboxes",
       promise: "Reply to any client email in under two minutes",
@@ -31,11 +35,14 @@ export const mockResearch = (category: string): ResearchResult => ({
       demand_signal: "Mock: prompt packs at $27 outsell single prompts on Gumroad",
       competition: "Hundreds of generic prompt lists. Few organised by real inbox situations.",
       gap: "Organised by situation (late payment, scope creep, bad news) with example output.",
+      why_now: "Mock: prompt packs are a top Gumroad category this year",
+      time_to_create_hours: 2,
       ice: { impact: 7, confidence: 8, ease: 9, total: 24 },
       evidence: [{ title: "Gumroad discover: prompts", url: "https://gumroad.com/discover?query=prompts", note: "Mock evidence" }],
     },
     {
       name: "Lead Tracker Spreadsheet with Follow-up Reminders",
+      category: "Business templates",
       format: "spreadsheet",
       audience: "Solo consultants and coaches",
       promise: "Never lose a warm lead to a forgotten follow-up",
@@ -43,6 +50,8 @@ export const mockResearch = (category: string): ResearchResult => ({
       demand_signal: "Mock: lightweight CRM templates are a top-four template category",
       competition: "Crowded, but most are Notion-only and overbuilt.",
       gap: "Google Sheets, five columns, one follow-up formula. Done in ten minutes.",
+      why_now: "Mock: lightweight CRMs are a top-four template category",
+      time_to_create_hours: 2,
       ice: { impact: 6, confidence: 7, ease: 10, total: 23 },
       evidence: [{ title: "Notion Marketplace CRM templates", url: "https://www.notion.com/templates/category/crm", note: "Mock evidence" }],
     },
@@ -140,9 +149,9 @@ export const mockLaunch = (title: string): LaunchResult => ({
   posts: Array.from({ length: 8 }, (_, i) => ({ platform: i % 2 ? "LinkedIn" : "Facebook group", hook: "Your new hire's first week decides if they stay.", body: "Mock post body.", cta: "Link in profile" })),
   calendar: Array.from({ length: 30 }, (_, i) => ({ day: i - 13, action: i < 14 ? "Waitlist post" : i === 14 ? "Launch" : "Follow-up post" })),
   where_to_sell: [
-    { platform: "Own site + Payhip", role: "main store", why: "Lowest fee, keeps the buyer email", fee_note: "5% flat on the free plan plus processing", priority: 1 },
-    { platform: "Etsy", role: "search channel", why: "Buyers search 'onboarding checklist' there daily", fee_note: "About 12 to 15% all in; UAE payouts via Payoneer", priority: 2 },
-    { platform: "Gumroad", role: "discovery listing", why: "Discover feed and easy setup", fee_note: "10% + 50c", priority: 3 },
+    { platform: "Gumroad", role: "main store", upfront_cost: "free", why: "Free to list, live in 15 minutes, Discover feed brings some traffic", fee_note: "10% + 50c only when something sells", setup_minutes: 15, priority: 1 },
+    { platform: "Payhip", role: "main store", upfront_cost: "free", why: "Free plan, lower fee than Gumroad, embeds on your own site", fee_note: "5% flat plus processing, only on sales", setup_minutes: 20, priority: 2 },
+    { platform: "Etsy", role: "search channel", upfront_cost: "pay per listing", why: "Buyers search 'onboarding checklist' there daily", fee_note: "USD 0.20 per listing, then about 12 to 15% on a sale; UAE payouts via Payoneer", setup_minutes: 45, priority: 3 },
   ],
   upsell_path: "Bundle with the HR templates pack, then invite to a strategy call.",
 });

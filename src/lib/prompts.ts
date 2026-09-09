@@ -21,6 +21,8 @@ How to research:
 3. Look for the gap: what the top sellers all miss, what reviews complain about, what a specific audience needs that generic products ignore.
 4. Score each opportunity with ICE: impact (revenue potential for a solo seller, 1 to 10), confidence (strength of the evidence, 1 to 10), ease (how fast one person with AI tools can build it well, 1 to 10). total is the sum.
 5. Include an "avoid" list for saturated or low-value ideas in the category.
+6. For every opportunity give time_to_create_hours: realistic hours for one person to make it sellable using an AI writing tool plus light editing and a cover. Prompt packs and checklists 1 to 3 hours, template packs 2 to 5, guides and ebooks 4 to 10, spreadsheets 2 to 4, Notion systems 4 to 8, mini-courses 10 to 25.
+7. why_now must name the reason it is selling at this moment: a season, a platform change, a trend, a recurring need.
 
 Output rules:
 - Respond with a single JSON object matching the schema you are given. No prose before or after it.
@@ -31,7 +33,17 @@ Output rules:
 ${VOICE_RULES}`;
 }
 
-export function researchUser(input: { category: string; audience: string; region: string; notes: string }): string {
+export function researchUser(input: { mode: "category" | "trending"; category: string; audience: string; region: string; notes: string }): string {
+  if (input.mode === "trending") {
+    return `Find the digital products that are selling best right now across ALL categories, then return the best opportunities a solo creator could make quickly.
+
+Look across: business and HR templates, planners and printables, prompt packs, Notion systems, spreadsheets and trackers, ebooks and guides, wedding and event printables, education and worksheets, health and fitness trackers, faith and journaling, coding and dev assets, Canva templates, mini-courses.
+Target audience (if given): ${input.audience || "not specified"}
+Region or market: ${input.region || "global"}
+Extra notes from the seller: ${input.notes || "none"}
+
+Search at least eight queries: marketplace bestseller pages, "trending digital products" for this month, Etsy and Gumroad category pages, and Reddit or TikTok posts about what is selling. Return 6 to 8 opportunities from at least four different categories. Set the category field on each, and set the top-level category to "Trending across categories". Favour products with the shortest time_to_create_hours when demand is similar.`;
+  }
   return `Research this digital product category and return the best opportunities.
 
 Category: ${input.category}
@@ -114,15 +126,16 @@ ${buyerNotes}
 Target length: ${words} words. Write the whole thing in one pass.`;
 }
 
-const PLATFORM_FACTS = `Platform facts as of September 2026 (use these for where_to_sell and fee_note):
-- Own site + Payhip: 5% flat on the free plan, 2% at USD 29/month, 0% at USD 99/month, plus Stripe or PayPal processing around 2.9% + 30c. PayPal and Stripe payouts. Cheapest at scale, but the seller brings all traffic.
-- Own site + Lemon Squeezy: 5% + 50c, merchant of record handles VAT and sales tax, PayPal payouts in 200+ countries. Owned by Stripe, approval at signup.
-- Gumroad: 10% + 50c. Fast setup, Discover feed brings some traffic. Most expensive of the checkout tools.
-- Etsy: USD 0.20 per listing, 6.5% transaction, 3% + 25c processing, plus 12 to 15% when an offsite ad brings the sale. About 12 to 15% all in. Strong search traffic for printables, planners, templates. UAE sellers are paid through Payoneer; Philippine sellers are paid directly with 4.5% + PHP 25 processing.
-- Whop: 3% platform + 2.7% + 30c processing, +1.5% for international cards, USD 2.50 to 23 per payout. About 6 to 7% blended. Built for communities and memberships.
-- Notion Marketplace: free listing for Notion templates, checkout runs through Gumroad or Payhip. Discovery only.
-- Amazon KDP: for ebooks only, 35% or 70% royalty depending on price band, no email capture.
-Rule: recommend one main store (own site with Payhip or Lemon Squeezy unless the format demands otherwise), one search channel where the format has search demand (Etsy for templates and printables, Amazon KDP for books, Notion Marketplace for Notion), and mark discovery-only listings. Mark platforms that do not fit this product as "skip" with the reason.`;
+const PLATFORM_FACTS = `Platform facts as of September 2026 (use these for where_to_sell, upfront_cost, fee_note, setup_minutes):
+- Gumroad: free to list, 10% + 50c only on a sale. Live in about 15 minutes. Discover feed brings some traffic. upfront_cost: free.
+- Ko-fi Shop: free to list, 5% on a sale (0% on the paid Gold tier). No algorithm. upfront_cost: free.
+- Payhip: free plan, 5% flat on a sale plus Stripe or PayPal processing (~2.9% + 30c). Paid plans at USD 29/month (2%) and USD 99/month (0%) exist but are not needed to start. Embeds on the seller's own site. About 20 minutes to set up. upfront_cost: free.
+- Lemon Squeezy: free to list, 5% + 50c on a sale, merchant of record handles VAT, PayPal payouts in 200+ countries. Owned by Stripe, approval at signup. About 30 minutes. upfront_cost: free.
+- Notion Marketplace: free listing for Notion templates only, checkout runs through Gumroad or Payhip. Creator approval can take days. upfront_cost: free.
+- Amazon KDP: free to publish, ebooks only, 35% or 70% royalty, no email capture, review up to 72 hours. About 90 minutes. upfront_cost: free.
+- Whop: free to list, 3% platform + 2.7% + 30c processing, +1.5% international cards, payout fees. About 6 to 7% blended. For communities, courses, memberships. upfront_cost: free.
+- Etsy: USD 0.20 per listing paid up front, then 6.5% transaction + 3% + 25c processing, plus 12 to 15% when an offsite ad brings the sale. Strong search traffic for printables, planners, templates. UAE sellers are paid through Payoneer; Philippine sellers direct with 4.5% + PHP 25 processing. About 45 minutes. upfront_cost: pay per listing.
+Rules: the seller does not want to pay anything before the first sale, so rank platforms with upfront_cost "free" first and never recommend a monthly plan. Recommend one free main store (Gumroad for speed, Payhip for lower fees), one search channel where the format has search demand (Etsy for templates and printables, Amazon KDP for books, Notion Marketplace for Notion), and mark discovery-only listings. Mark platforms that do not fit this product as "skip" with the reason. Give setup_minutes for each.`;
 
 export function launchSystem(brand: string): string {
   return `You are a launch strategist for digital products sold by one person with no ad budget. You produce the complete launch kit: pricing, sales page, marketplace listings, a five-email sequence, social posts, and a 30-day calendar.
@@ -137,7 +150,7 @@ Rules:
 - Posts: at least 8, across the channels from audience research. Hook line first (8 to 12 words), short body, one takeaway, one soft CTA. No hashtag walls, no emoji bullets.
 - Calendar: 30 days, starting 14 days before launch with waitlist building, through launch week, to the post-launch follow-up. One action per entry.
 - upsell_path: what the buyer is offered next.
-- where_to_sell: at least three entries ranked by priority, using the platform facts below. Be specific about the fee on one sale at the launch price.
+- where_to_sell: at least four entries ranked by priority, free-to-start platforms first, using the platform facts below. Be specific about the fee on one sale at the launch price.
 ${brand ? `- The seller's brand is ${brand}. Refer to it by that name.` : ""}
 
 ${PLATFORM_FACTS}

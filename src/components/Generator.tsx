@@ -5,12 +5,14 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Markdown from "./Markdown";
 import { downloadDocx, downloadText, slug, streamStage } from "@/lib/stream-client";
 import type { AudienceResult, LaunchResult, Opportunity, ResearchResult } from "@/lib/schemas";
+import { PLATFORMS, platformByName } from "@/lib/platforms";
 
 type Step = 1 | 2 | 3 | 4;
 
 type Run = {
   id: string;
   createdAt: number;
+  mode: "category" | "trending";
   category: string;
   audienceHint: string;
   region: string;
@@ -20,6 +22,7 @@ type Run = {
   audience?: AudienceResult;
   product?: { title: string; markdown: string };
   launch?: LaunchResult;
+  publishOn?: string;
   author: string;
   voice: string;
   length: "short" | "standard" | "long";
@@ -42,6 +45,7 @@ const PASS = "dpg.password";
 const newRun = (): Run => ({
   id: Math.random().toString(36).slice(2, 10),
   createdAt: Date.now(),
+  mode: "trending",
   category: "",
   audienceHint: "",
   region: "global",
@@ -70,11 +74,13 @@ export default function Generator() {
   const [password, setPassword] = useState("");
   const [draft, setDraft] = useState("");
   const [autopilot, setAutopilot] = useState(false);
+  const [status, setStatus] = useState<{ mock: boolean; passwordRequired: boolean } | null>(null);
   const draftRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setRuns(load<Run[]>(STORAGE, []));
     setPassword(load<string>(PASS, ""));
+    fetch("/api/status").then((r) => r.json()).then(setStatus).catch(() => setStatus(null));
   }, []);
 
   useEffect(() => {
@@ -123,10 +129,10 @@ export default function Generator() {
   }
 
   const doResearch = async (base: Run = run): Promise<Run | null> => {
-    if (!base.category.trim()) { setError("Type a category first."); return null; }
+    if (base.mode === "category" && !base.category.trim()) { setError("Type a category first, or switch to trending mode."); return null; }
     try {
       const research = await runStep<ResearchResult>("/api/research", {
-        category: base.category, audience: base.audienceHint, region: base.region, notes: base.notes,
+        mode: base.mode, category: base.category, audience: base.audienceHint, region: base.region, notes: base.notes,
       });
       const next = { ...base, research, selected: undefined, audience: undefined, product: undefined, launch: undefined };
       save(next);
@@ -216,6 +222,14 @@ export default function Generator() {
         </div>
       </header>
 
+      {status?.mock && (
+        <div className="notice" style={{ marginTop: 0, marginBottom: 20 }}>
+          <b>Demo mode.</b> This deployment has no Anthropic API key, so every step returns sample data to show the flow. Add <code>ANTHROPIC_API_KEY</code> (and <code>APP_PASSWORD</code>) in Vercel to run real research.
+        </div>
+      )}
+      {status && !status.passwordRequired && !status.mock && (
+        <div className="notice" style={{ marginTop: 0, marginBottom: 20 }}><b>Open access.</b> Set <code>APP_PASSWORD</code> in Vercel so only you can spend your API credits.</div>
+      )}
       <ol className="steps">
         {([1, 2, 3, 4] as Step[]).map((n) => (
           <li key={n} className={stepState(n)}>
@@ -232,8 +246,19 @@ export default function Generator() {
           {step === 1 && (
             <section className="card">
               <div className="eyebrow">Step 1</div>
-              <h2>What category do you want to sell in?</h2>
-              <p className="hint">The generator searches live marketplaces and communities, then scores every opportunity it finds. Any category works: HR, fitness, real estate, faith, parenting, coding, crafts.</p>
+              <h2>What should we make?</h2>
+              <p className="hint">The generator searches live marketplaces and communities, scores what it finds, and tells you how long each product takes to make. Nothing here costs money until something sells.</p>
+              <div className="modes" role="radiogroup" aria-label="Research mode">
+                <button type="button" className={`mode ${run.mode === "trending" ? "on" : ""}`} onClick={() => setRun({ ...run, mode: "trending" })} aria-pressed={run.mode === "trending"}>
+                  <b>What is selling right now</b>
+                  <span>Scan every category for this month's top products</span>
+                </button>
+                <button type="button" className={`mode ${run.mode === "category" ? "on" : ""}`} onClick={() => setRun({ ...run, mode: "category" })} aria-pressed={run.mode === "category"}>
+                  <b>A category I choose</b>
+                  <span>Go deep on one niche</span>
+                </button>
+              </div>
+              {run.mode === "category" && (<>
               <label htmlFor="cat">Category or niche</label>
               <input id="cat" type="text" value={run.category} onChange={(e) => setRun({ ...run, category: e.target.value })} placeholder="e.g. HR templates for small businesses, or meal planning for busy parents" />
               <div className="chips" aria-label="Quick starts">
@@ -241,6 +266,7 @@ export default function Generator() {
                   <button key={q.label} type="button" className="chip" onClick={() => setRun({ ...run, category: q.category, audienceHint: q.audience, region: q.region })}>{q.label}</button>
                 ))}
               </div>
+              </>)}
               <div className="row">
                 <div>
                   <label htmlFor="aud">Audience (optional)</label>
@@ -254,12 +280,12 @@ export default function Generator() {
               <label htmlFor="notes">Anything the researcher should know (optional)</label>
               <textarea id="notes" value={run.notes} onChange={(e) => setRun({ ...run, notes: e.target.value })} placeholder="Your real experience, products you already sell, formats you don't want." />
               <div className="actions">
-                <button className="btn btn-primary" onClick={() => doResearch()} disabled={busy}>{busy ? <span className="spin" /> : null} Research this category</button>
+                <button className="btn btn-primary" onClick={() => doResearch()} disabled={busy}>{busy ? <span className="spin" /> : null} {run.mode === "trending" ? "Find what is selling now" : "Research this category"}</button>
               </div>
               <div className="auto">
-                <b>Autopilot.</b> Research the category, pick the best-scoring opportunity, find the buyers, write the product, and build the launch kit in one go. Fill in the author and voice in Step 3 first if you want the product written as you.
+                <b>Autopilot.</b> Research, pick the best-scoring opportunity, find the buyers, write the product, and build the launch kit in one go. Fill in the author and voice in Step 3 first if you want the product written as you.
                 <div className="actions" style={{ marginTop: 10 }}>
-                  <button className="btn btn-gold" onClick={doAutopilot} disabled={busy || !run.category.trim()}>{autopilot ? <span className="spin" /> : null} Run everything</button>
+                  <button className="btn btn-gold" onClick={doAutopilot} disabled={busy || (run.mode === "category" && !run.category.trim())}>{autopilot ? <span className="spin" /> : null} Run everything</button>
                 </div>
               </div>
               <Log lines={log} busy={busy} />
@@ -271,10 +297,12 @@ export default function Generator() {
                   <p>{run.research.summary}</p>
                   <div>{run.research.best_platforms.map((p) => <span className="pill" key={p}>{p}</span>)}</div>
                   <h3 style={{ marginTop: 20 }}>Opportunities, best first. Pick one.</h3>
+                  <p className="hint">Score is impact, confidence, and ease out of 30. Time is a realistic estimate for one person with this generator.</p>
                   {sortedOpps.map((op) => (
                     <div key={op.name} className={`opp ${run.selected?.name === op.name ? "selected" : ""}`} onClick={() => save({ ...run, selected: op })} role="button" tabIndex={0}>
                       <div className="head"><h3>{op.name}</h3><span className="score">ICE {op.ice.total}</span></div>
-                      <div><span className="pill">{op.format}</span><span className="pill">{op.price_low} to {op.price_high} {op.currency}</span><span className="pill">I {op.ice.impact} · C {op.ice.confidence} · E {op.ice.ease}</span></div>
+                      <div><span className="pill">{op.category}</span><span className="pill">{op.format}</span><span className="pill">{op.price_low} to {op.price_high} {op.currency}</span><span className="pill time">about {op.time_to_create_hours} h to make</span><span className="pill">I {op.ice.impact} · C {op.ice.confidence} · E {op.ice.ease}</span></div>
+                      <p className="kv"><b>Why now:</b> {op.why_now}</p>
                       <p className="kv"><b>For:</b> {op.audience}</p>
                       <p className="kv"><b>Promise:</b> {op.promise}</p>
                       <p className="kv"><b>Demand:</b> {op.demand_signal}</p>
@@ -375,7 +403,7 @@ export default function Generator() {
                   </div>
                   <Log lines={log} busy={busy} />
                   {error && <div className="error">{error}</div>}
-                  {run.launch && <LaunchView l={run.launch} onDownload={() => downloadText(`launch-kit-${slug(run.product!.title)}.md`, launchToMarkdown(run.launch!))} onDocx={() => downloadDocx(`${run.product!.title} launch kit`, run.author, launchToMarkdown(run.launch!), password).catch((e) => setError(String(e.message)))} />}
+                  {run.launch && <LaunchView l={run.launch} chosen={run.publishOn} onChoose={(p) => save({ ...run, publishOn: p })} onDownload={() => downloadText(`launch-kit-${slug(run.product!.title)}.md`, launchToMarkdown(run.launch!))} onDocx={() => downloadDocx(`${run.product!.title} launch kit`, run.author, launchToMarkdown(run.launch!), password).catch((e) => setError(String(e.message)))} />}
                 </>
               )}
             </section>
@@ -389,6 +417,8 @@ export default function Generator() {
               <tbody>
                 <tr><th>Category</th><td>{run.category || "not set"}</td></tr>
                 <tr><th>Picked</th><td>{run.selected?.name ?? "none yet"}</td></tr>
+                <tr><th>Time to make</th><td>{run.selected ? `about ${run.selected.time_to_create_hours} hours` : "..."}</td></tr>
+                <tr><th>Publish on</th><td>{run.publishOn ?? "choose in Step 4"}</td></tr>
                 <tr><th>Audience</th><td>{run.audience ? `${run.audience.channels.length} channels` : "not yet"}</td></tr>
                 <tr><th>Product</th><td>{run.product ? `${run.product.markdown.split(/\s+/).length.toLocaleString()} words` : "not yet"}</td></tr>
                 <tr><th>Launch kit</th><td>{run.launch ? "ready" : "not yet"}</td></tr>
@@ -457,7 +487,7 @@ function AudienceView({ a, onNext, onDownload }: { a: AudienceResult; onNext: ()
   );
 }
 
-function LaunchView({ l, onDownload, onDocx }: { l: LaunchResult; onDownload: () => void; onDocx: () => void }) {
+function LaunchView({ l, chosen, onChoose, onDownload, onDocx }: { l: LaunchResult; chosen?: string; onChoose: (p: string) => void; onDownload: () => void; onDocx: () => void }) {
   return (
     <div style={{ marginTop: 20 }}>
       <div className="panel">
@@ -466,11 +496,7 @@ function LaunchView({ l, onDownload, onDocx }: { l: LaunchResult; onDownload: ()
         <p className="kv"><b>Launch price:</b> {l.price.launch} {l.price.currency} for 72 hours, then {l.price.regular} {l.price.currency}. {l.price.reasoning}</p>
         <p className="kv"><b>Next offer:</b> {l.upsell_path}</p>
       </div>
-      <h3 style={{ marginTop: 20 }}>Where to sell it</h3>
-      <table className="grid">
-        <thead><tr><th>Platform</th><th>Role</th><th>Why</th><th>Fees and payout</th></tr></thead>
-        <tbody>{l.where_to_sell.slice().sort((a, b) => a.priority - b.priority).map((w) => <tr key={w.platform}><td><b>{w.platform}</b></td><td>{w.role}</td><td>{w.why}</td><td>{w.fee_note}</td></tr>)}</tbody>
-      </table>
+      <PublishChooser l={l} chosen={chosen} onChoose={onChoose} />
       <details open style={{ marginTop: 16 }}><summary>Sales page</summary>
         <h3 style={{ marginTop: 12 }}>{l.sales_page.headline}</h3>
         <p>{l.sales_page.subheadline}</p>
@@ -501,11 +527,69 @@ function LaunchView({ l, onDownload, onDocx }: { l: LaunchResult; onDownload: ()
   );
 }
 
+function PublishChooser({ l, chosen, onChoose }: { l: LaunchResult; chosen?: string; onChoose: (p: string) => void }) {
+  const order = { free: 0, "pay per listing": 1, "monthly fee": 2 };
+  const recs = l.where_to_sell.filter((w) => w.role !== "skip").slice().sort((a, b) => order[a.upfront_cost] - order[b.upfront_cost] || a.priority - b.priority);
+  const skipped = l.where_to_sell.filter((w) => w.role === "skip");
+  const active = chosen ? platformByName(chosen) : undefined;
+  const listing = active ? l.listings.find((x) => x.platform.toLowerCase().includes(active.key) || x.platform.toLowerCase().includes(active.name.toLowerCase().split(" ")[0])) ?? l.listings[0] : undefined;
+  const others = PLATFORMS.filter((p) => !recs.some((w) => platformByName(w.platform)?.key === p.key));
+  return (
+    <div style={{ marginTop: 20 }}>
+      <h3>Choose where to publish</h3>
+      <p className="hint">Free-to-start first. You pay nothing until a sale happens on the free ones. Pick one and the exact publishing steps appear below.</p>
+      <div className="platforms">
+        {recs.map((w) => {
+          const p = platformByName(w.platform);
+          const key = p?.name ?? w.platform;
+          return (
+            <button type="button" key={key} className={`platform ${chosen === key ? "on" : ""}`} onClick={() => onChoose(key)} aria-pressed={chosen === key}>
+              <div className="head"><b>{key}</b><span className={`cost ${w.upfront_cost === "free" ? "free" : ""}`}>{w.upfront_cost === "free" ? "free to start" : w.upfront_cost}</span></div>
+              <div className="kv">{w.role} · about {w.setup_minutes} min to set up</div>
+              <div className="kv">{w.why}</div>
+              <div className="ev">{w.fee_note}</div>
+            </button>
+          );
+        })}
+      </div>
+      {others.length > 0 && (
+        <details><summary>Other platforms you could use</summary>
+          <div className="platforms" style={{ marginTop: 10 }}>
+            {others.map((p) => (
+              <button type="button" key={p.key} className={`platform ${chosen === p.name ? "on" : ""}`} onClick={() => onChoose(p.name)} aria-pressed={chosen === p.name}>
+                <div className="head"><b>{p.name}</b><span className={`cost ${p.upfront === "free" ? "free" : ""}`}>{p.upfront === "free" ? "free to start" : p.upfront}</span></div>
+                <div className="kv">about {p.setupMinutes} min · {p.bestFor}</div>
+                <div className="ev">{p.feeOnSale}</div>
+              </button>
+            ))}
+          </div>
+          {skipped.length > 0 && <ul style={{ marginTop: 10 }}>{skipped.map((w) => <li key={w.platform} className="hint"><b>{w.platform}:</b> skip. {w.why}</li>)}</ul>}
+        </details>
+      )}
+      {active && (
+        <div className="panel" style={{ marginTop: 16 }}>
+          <h3>Publish on {active.name}</h3>
+          <p className="kv"><b>Fee:</b> {active.feeOnSale}. <b>Payout:</b> {active.payout}. <a href={active.url} target="_blank" rel="noopener">Open {active.name}</a></p>
+          <ol>{active.steps.map((st) => <li key={st}>{st}</li>)}</ol>
+          <p className="kv"><b>Listing tips:</b> {active.listingTips.join(" ")}</p>
+          {listing && (
+            <div style={{ marginTop: 10 }}>
+              <b>Paste this listing</b>
+              <pre>{`Title: ${listing.title}\n\nTags: ${listing.tags.join(", ")}\n\n${listing.description}`}</pre>
+              <button className="btn btn-outline btn-sm" onClick={() => navigator.clipboard?.writeText(`Title: ${listing.title}\n\nTags: ${listing.tags.join(", ")}\n\n${listing.description}`)}>Copy listing</button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function launchToMarkdown(l: LaunchResult): string {
   const lines: string[] = [];
   lines.push(`# ${l.product_name}: launch kit`, "", l.tagline, "");
   lines.push("## Pricing", "", `Launch price: ${l.price.launch} ${l.price.currency} for 72 hours. Regular: ${l.price.regular} ${l.price.currency}.`, "", l.price.reasoning, "", `Next offer: ${l.upsell_path}`, "");
-  lines.push("## Where to sell", "", ...l.where_to_sell.slice().sort((a, b) => a.priority - b.priority).map((w) => `- **${w.platform}** (${w.role}): ${w.why} Fees: ${w.fee_note}`), "");
+  lines.push("## Where to publish (free-to-start first)", "", ...l.where_to_sell.slice().sort((a, b) => a.priority - b.priority).map((w) => `- **${w.platform}** (${w.role}, ${w.upfront_cost}, about ${w.setup_minutes} min): ${w.why} Fees: ${w.fee_note}`), "");
   lines.push("## Sales page", "", `### ${l.sales_page.headline}`, "", l.sales_page.subheadline, "", "**Problem**", "", l.sales_page.problem, "", "**Who it is for**", "", ...l.sales_page.who_its_for.map((w) => `- ${w}`), "", "**What is inside**", "", ...l.sales_page.whats_inside.map((w) => `- ${w}`), "", "**Proof**", "", l.sales_page.proof_placeholder, "", "**FAQ**", "", ...l.sales_page.faq.flatMap((f) => [`- **${f.q}** ${f.a}`]), "", `**CTA:** ${l.sales_page.cta}`, "");
   lines.push("## Listings", "");
   for (const x of l.listings) lines.push(`### ${x.platform}`, "", `**Title:** ${x.title}`, "", `**Tags:** ${x.tags.join(", ")}`, "", x.description, "");

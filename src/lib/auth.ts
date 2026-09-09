@@ -8,6 +8,11 @@ export function authorized(req: Request): boolean {
   return req.headers.get("x-app-password") === required;
 }
 
+/**
+ * Demo mode: on when MOCK_MODE is set, or when there is no Anthropic key at all.
+ * That way a fresh deploy shows the full flow with sample data instead of failing.
+ */
 export function mockMode(): boolean {
-  return process.env.MOCK_MODE === "1" || process.env.MOCK_MODE === "true";
+  if (process.env.MOCK_MODE === "1" || process.env.MOCK_MODE === "true") return true;
+  return !process.env.ANTHROPIC_API_KEY && !process.env.ANTHROPIC_AUTH_TOKEN;
 }

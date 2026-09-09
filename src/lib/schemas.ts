@@ -11,6 +11,7 @@ export const Evidence = z.object({
 
 export const Opportunity = z.object({
   name: z.string(),
+  category: z.string().describe("The market category this sits in, e.g. HR templates, meal planning, wedding printables"),
   format: z.string().describe("ebook, template pack, prompt pack, planner, checklist, notion system, canva templates, mini-course, email course, spreadsheet, swipe file, or other"),
   audience: z.string(),
   promise: z.string().describe("The one-sentence outcome the buyer pays for"),
@@ -20,6 +21,8 @@ export const Opportunity = z.object({
   demand_signal: z.string().describe("Concrete evidence of demand: listing counts, review counts, search volume, community size"),
   competition: z.string().describe("Who already sells this and how crowded it is"),
   gap: z.string().describe("What the existing products miss that this one will do"),
+  why_now: z.string().describe("Why this is selling right now: a trend, a season, a platform change, a recurring need"),
+  time_to_create_hours: z.number().describe("Realistic hours for one person using this generator plus light editing to make it sellable"),
   ice: z.object({
     impact: z.number().min(1).max(10),
     confidence: z.number().min(1).max(10),
@@ -30,7 +33,7 @@ export const Opportunity = z.object({
 });
 
 export const ResearchResult = z.object({
-  category: z.string(),
+  category: z.string().describe("The category researched, or 'Trending across categories'"),
   summary: z.string().describe("Three to five plain sentences on what is selling in this category right now"),
   best_platforms: z.array(z.string()),
   opportunities: z.array(Opportunity).min(3).max(8),
@@ -89,8 +92,10 @@ export const LaunchResult = z.object({
   where_to_sell: z.array(z.object({
     platform: z.string(),
     role: z.enum(["main store", "search channel", "discovery listing", "skip"]),
+    upfront_cost: z.enum(["free", "pay per listing", "monthly fee"]),
     why: z.string(),
     fee_note: z.string().describe("The fee on a sale and any payout constraint for the seller's region"),
+    setup_minutes: z.number().describe("Minutes to open an account and publish the first listing"),
     priority: z.number().min(1).max(5),
   })).min(3),
   upsell_path: z.string(),
@@ -103,7 +108,8 @@ export type AudienceResult = z.infer<typeof AudienceResult>;
 export type LaunchResult = z.infer<typeof LaunchResult>;
 
 export const ResearchInput = z.object({
-  category: z.string().min(2).max(200),
+  mode: z.enum(["category", "trending"]).default("category"),
+  category: z.string().max(200).optional().default(""),
   audience: z.string().max(300).optional().default(""),
   region: z.string().max(100).optional().default("global"),
   notes: z.string().max(1000).optional().default(""),

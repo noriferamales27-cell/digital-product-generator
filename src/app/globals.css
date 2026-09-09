@@ -125,3 +125,20 @@ summary { cursor: pointer; font-weight: 600; font-size: 14px; }
 .chip { font: inherit; font-size: 13px; padding: 6px 12px; border-radius: 100px; border: 1px solid #CBD5E1; background: #fff; cursor: pointer; }
 .chip:hover { border-color: var(--primary); color: var(--primary); }
 .auto { border: 1px dashed var(--primary); background: var(--primary-light); border-radius: 12px; padding: 14px 16px; margin-top: 18px; }
+
+.modes { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 6px 0 4px; }
+@media (max-width: 640px) { .modes { grid-template-columns: 1fr; } }
+.mode { all: unset; cursor: pointer; display: flex; flex-direction: column; gap: 2px; padding: 12px 14px; border-radius: 12px; border: 1px solid #CBD5E1; background: #fff; font-size: 13.5px; }
+.mode b { font-weight: 600; }
+.mode span { color: #475569; font-size: 13px; }
+.mode.on { border-color: var(--primary); background: var(--primary-light); }
+.mode:focus-visible { outline: 2px solid var(--primary); }
+.pill.time { background: var(--primary-light); color: var(--primary-dark); font-weight: 600; }
+.platforms { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+@media (max-width: 700px) { .platforms { grid-template-columns: 1fr; } }
+.platform { all: unset; cursor: pointer; display: block; padding: 14px; border-radius: 12px; border: 1px solid var(--line); background: #fff; font-size: 13.5px; }
+.platform .head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 4px; }
+.platform.on { border-color: var(--primary); background: var(--primary-light); }
+.platform:focus-visible { outline: 2px solid var(--primary); }
+.cost { font-size: 11.5px; border-radius: 100px; padding: 2px 8px; background: var(--muted); color: #475569; white-space: nowrap; }
+.cost.free { background: #ECFDF3; color: var(--ok); }
