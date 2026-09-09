@@ -1,4 +1,4 @@
-import type { AudienceResult, LaunchResult, ResearchResult } from "./schemas";
+import type { AudienceResult, LaunchResult, PlanTurn, ResearchResult } from "./schemas";
 
 // Canned data so the UI can be developed and demoed without spending API calls.
 
@@ -155,3 +155,42 @@ export const mockLaunch = (title: string): LaunchResult => ({
   ],
   upsell_path: "Bundle with the HR templates pack, then invite to a strategy call.",
 });
+
+export const mockPlanTurn = (name: string, turns: number, finish: boolean): PlanTurn => {
+  const questions = [
+    `Let's plan ${name} so it sells. First: what have you actually done that relates to this? One concrete story or number is enough.`,
+    "Good, that goes in as a real example. Who exactly can you reach right now, and what do they say they struggle with?",
+    "Useful. Do you already have anything we can build from: documents, checklists, past work?",
+  ];
+  if (!finish && turns < questions.length * 2) {
+    const i = Math.floor(turns / 2);
+    return { reply: questions[i], done: false, progress: (i + 1) / 4, plan: null };
+  }
+  return {
+    reply: "That's enough to plan well. Here's the plan. Change anything, or create the product from it.",
+    done: true,
+    progress: 1,
+    plan: {
+      title: name,
+      subtitle: "A new hire's first two weeks, planned in an afternoon",
+      angle: "Written by someone who onboarded 200 people by hand, for owners who have no HR department",
+      audience_detail: "Owners and managers of 10 to 50 person companies who do HR themselves",
+      format: "template pack",
+      length: "standard",
+      outline: [
+        { section: "Before day one", includes: ["Checklist", "Welcome message template", "Access setup list"] },
+        { section: "Day one", includes: ["Agenda", "Role walkthrough template", "First-week goal template"] },
+        { section: "Week one", includes: ["Daily check-in script", "Buddy guide"] },
+        { section: "Week two", includes: ["First real task handover", "Friday review template"] },
+        { section: "How to use this", includes: ["Copy into your task tool", "Fill brackets once"] },
+      ],
+      must_include: ["The visa paperwork mistake story", "Messages written out, not just tasks"],
+      seller_experience_to_use: ["15 years HR in the UAE", "Onboarded 200 staff across a restaurant group"],
+      differentiators: ["Written for a founder, not an HR department", "Every message included"],
+      tone: "First person, plain, direct",
+      price_suggestion: { launch: 19, regular: 29, currency: "USD" },
+      bonuses: ["30-60-90 day review template"],
+      risks: ["Generic feel: answered by the real story and UAE-specific wording"],
+    },
+  };
+};

@@ -1,4 +1,4 @@
-import type { AudienceResult, Opportunity } from "./schemas";
+import type { AudienceResult, ChatMessage, Opportunity, ProductPlan, SellerProfile } from "./schemas";
 
 const VOICE_RULES = `Writing rules for everything you produce:
 - Plain words, short sentences, one idea per sentence. Contractions are fine.
@@ -116,13 +116,14 @@ ${voice ? `- Voice and style notes from the author: ${voice}` : ""}
 ${VOICE_RULES}`;
 }
 
-export function generateUser(op: Opportunity, audience: AudienceResult | undefined, length: string): string {
+export function generateUser(op: Opportunity, audience: AudienceResult | undefined, length: string, plan?: ProductPlan, profile?: SellerProfile): string {
   const words = length === "short" ? "2,500 to 4,000" : length === "long" ? "9,000 to 14,000" : "5,000 to 8,000";
   const buyerNotes = audience
     ? `\nBuyer profile from research:\n- Who: ${audience.buyer_profile.who}\n- Job to be done: ${audience.buyer_profile.job_to_be_done}\n- Trigger moment: ${audience.buyer_profile.trigger_moment}\n- Objections: ${audience.buyer_profile.objections.join("; ")}\n- Their words: ${audience.buyer_profile.language_they_use.join("; ")}`
     : "";
+  const planText = plan ? `\n${planBrief(plan, profile)}\n` : "";
   return `Write the complete product.
-
+${planText}
 Product: ${op.name}
 Format: ${op.format}
 Audience: ${op.audience}
@@ -187,4 +188,73 @@ Words buyers use: ${words || "not researched"}
 
 Product outline (table of contents and opening):
 ${input.product_outline}`;
+}
+
+export function planSystem(): string {
+  return `You are a product planning assistant for digital products. Before anything is written, you interview the seller so the product sits on their real experience and answers what buyers actually need. Then you produce the plan the writer will follow.
+
+${DATE_LINE()}
+
+How to interview:
+- One question per turn. Never a list of questions. Keep each turn under 80 words.
+- Start from what you already know (the opportunity research and the seller profile). Do not ask for anything the profile already answers.
+- Ask in this order, skipping what is known: (1) what they have actually done that relates to this product, with one concrete story or number; (2) who exactly they can reach and what those people say they struggle with; (3) what they already have that can go in (documents, templates, past work); (4) what must be inside for them to be proud of it; (5) anything to avoid or a competitor they want to beat; (6) price comfort and whether they want a bonus.
+- React briefly to each answer so it feels like a conversation, then ask the next question.
+- Stop asking after six questions at most, or as soon as the answers are enough, or when finish is true. Then set done to true and produce the full plan.
+- If the seller has no relevant experience, do not fake it. Plan a product built on research and clearly marked examples, and say so in risks.
+
+Plan rules:
+- The outline is the writer's contract: 5 to 10 sections, each with the specific items it includes.
+- must_include and seller_experience_to_use come only from what the seller said.
+- Price suggestion stays inside the researched band unless the seller's answers justify more.
+- Respond with a single JSON object matching the schema. No prose outside it.
+
+${VOICE_RULES}`;
+}
+
+export function planUser(op: Opportunity, profile: SellerProfile | undefined, messages: ChatMessage[], finish: boolean): string {
+  const prof = profile
+    ? `Seller profile:\n- Name: ${profile.name || "not given"}\n- Brand: ${profile.brand || "not given"}\n- Experience: ${profile.experience || "not given"}\n- Audience they can reach: ${profile.audience || "not given"}\n- Assets they already have: ${profile.assets || "not given"}\n- Goals: ${profile.goals || "not given"}`
+    : "Seller profile: not given";
+  const convo = messages.length
+    ? messages.map((m) => `${m.role === "user" ? "Seller" : "Assistant"}: ${m.content}`).join("\n")
+    : "(no conversation yet: open with a short welcome and the first question)";
+  return `Product being planned:
+- Name: ${op.name}
+- Category: ${op.category}
+- Format: ${op.format}
+- Audience: ${op.audience}
+- Promise: ${op.promise}
+- Price band: ${op.price_low} to ${op.price_high} ${op.currency}
+- Demand: ${op.demand_signal}
+- Competition: ${op.competition}
+- Gap to fill: ${op.gap}
+- Why now: ${op.why_now}
+
+${prof}
+
+Conversation so far:
+${convo}
+
+Questions asked so far: ${messages.filter((m) => m.role === "assistant").length}
+Finish now: ${finish ? "yes, produce the plan with what you have" : "no"}`;
+}
+
+export function planBrief(plan: ProductPlan, profile?: SellerProfile): string {
+  const lines = [
+    `Follow this product plan exactly. It was agreed with the seller.`,
+    `Title: ${plan.title}`,
+    `Subtitle: ${plan.subtitle}`,
+    `Angle: ${plan.angle}`,
+    `Audience: ${plan.audience_detail}`,
+    `Format: ${plan.format}. Tone: ${plan.tone}.`,
+    `Outline (write every section, include every item):`,
+    ...plan.outline.map((o) => `- ${o.section}: ${o.includes.join("; ")}`),
+    `Must include: ${plan.must_include.join("; ") || "none stated"}`,
+    `Seller experience to weave in as real examples: ${plan.seller_experience_to_use.join("; ") || "none, use clearly marked examples"}`,
+    `Differentiators to make obvious: ${plan.differentiators.join("; ")}`,
+    `Bonuses to include at the end: ${plan.bonuses.join("; ") || "none"}`,
+  ];
+  if (profile?.experience) lines.push(`Seller background for voice and credibility: ${profile.experience}`);
+  return lines.join("\n");
 }

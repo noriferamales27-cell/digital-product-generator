@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import Markdown from "./Markdown";
 import { downloadDocx, downloadText, slug, streamStage } from "@/lib/stream-client";
-import type { AudienceResult, LaunchResult, Opportunity, ResearchResult } from "@/lib/schemas";
+import type { AudienceResult, ChatMessage, LaunchResult, Opportunity, PlanTurn, ProductPlan, ResearchResult, SellerProfile } from "@/lib/schemas";
 import { PLATFORMS, platformByName } from "@/lib/platforms";
 
 type Step = 1 | 2 | 3;
@@ -20,6 +20,8 @@ type Run = {
   research?: ResearchResult;
   selected?: Opportunity;
   audience?: AudienceResult;
+  plan?: ProductPlan;
+  chat: ChatMessage[];
   product?: { title: string; markdown: string };
   launch?: LaunchResult;
   publishOn?: string;
@@ -42,6 +44,8 @@ const QUICK_STARTS: { label: string; category: string; audience: string; region:
 
 const STORAGE = "dpg.runs.v2";
 const PASS = "dpg.password";
+const PROFILE = "dpg.profile";
+const emptyProfile: SellerProfile = { name: "", brand: "", experience: "", audience: "", assets: "", goals: "" };
 
 const newRun = (): Run => ({
   id: Math.random().toString(36).slice(2, 10),
@@ -51,6 +55,7 @@ const newRun = (): Run => ({
   audienceHint: "",
   region: "global",
   notes: "",
+  chat: [],
   author: "",
   voice: "",
   length: "standard",
@@ -78,17 +83,37 @@ export default function Generator() {
   const [autopilot, setAutopilot] = useState(false);
   const [showCategory, setShowCategory] = useState(false);
   const [status, setStatus] = useState<{ mock: boolean; passwordRequired: boolean } | null>(null);
+  const [profile, setProfile] = useState<SellerProfile>(emptyProfile);
+  const [chatInput, setChatInput] = useState("");
+  const [planning, setPlanning] = useState(false);
+  const [adjusting, setAdjusting] = useState(false);
+  const chatRef = useRef<HTMLDivElement>(null);
   const draftRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setRuns(load<Run[]>(STORAGE, []));
     setPassword(load<string>(PASS, ""));
+    setProfile({ ...emptyProfile, ...load<Partial<SellerProfile>>(PROFILE, {}) });
     fetch("/api/status").then((r) => r.json()).then(setStatus).catch(() => setStatus(null));
   }, []);
 
   useEffect(() => {
     try { localStorage.setItem(PASS, JSON.stringify(password)); } catch {}
   }, [password]);
+
+  useEffect(() => {
+    try { localStorage.setItem(PROFILE, JSON.stringify(profile)); } catch {}
+  }, [profile]);
+
+  // Open the planning conversation as soon as a product is chosen.
+  useEffect(() => {
+    if (step === 2 && run.selected && !run.plan && run.chat.length === 0 && !planning && !busy) {
+      void planTurn(run, "", false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, run.selected?.name]);
+
+  useEffect(() => { chatRef.current?.scrollTo({ top: chatRef.current.scrollHeight }); }, [run.chat.length, planning]);
 
   const save = (next: Run) => {
     setRun(next);
@@ -148,8 +173,9 @@ export default function Generator() {
     setDraft("");
     let acc = "";
     try {
+      const author = base.author || profile.brand || profile.name;
       const out = await runStep<{ markdown: string }>("/api/generate", {
-        opportunity: base.selected, audience: base.audience, length: base.length, voice: base.voice, author: base.author,
+        opportunity: base.selected, audience: base.audience, length: base.length, voice: base.voice, author, plan: base.plan, profile,
       }, (t) => { acc += t; setDraft(acc); draftRef.current?.scrollTo({ top: draftRef.current.scrollHeight }); });
       const title = out.markdown.match(/^#\s+(.*)$/m)?.[1]?.trim() || base.selected.name;
       const next = { ...base, product: { title, markdown: out.markdown } };
@@ -157,6 +183,32 @@ export default function Generator() {
       setDraft("");
       return next;
     } catch { return null; }
+  };
+
+  /** One turn of the planning interview. Empty text opens the conversation. */
+  const planTurn = async (base: Run, text: string, finish: boolean): Promise<Run | null> => {
+    if (!base.selected) return null;
+    const chat: ChatMessage[] = text.trim() ? [...base.chat, { role: "user", content: text.trim() }] : base.chat;
+    let cur: Run = { ...base, chat };
+    setRun(cur);
+    setPlanning(true); setError("");
+    try {
+      let turn: PlanTurn | undefined;
+      for await (const ev of streamStage("/api/plan", { opportunity: cur.selected, profile, messages: chat, finish }, password)) {
+        if (ev.type === "result") turn = ev.data as PlanTurn;
+      }
+      if (!turn) throw new Error("The planner did not answer.");
+      cur = { ...cur, chat: [...chat, { role: "assistant", content: turn.reply }], plan: turn.done && turn.plan ? turn.plan : cur.plan };
+      if (turn.done && turn.plan) { cur = { ...cur, length: turn.plan.length }; setAdjusting(false); }
+      save(cur);
+      setChatInput("");
+      return cur;
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      return null;
+    } finally {
+      setPlanning(false);
+    }
   };
 
   /** Step 3 in one click: find the buyers, then build the launch kit with platform advice. */
@@ -197,7 +249,7 @@ export default function Generator() {
     }
   };
 
-  const pick = (op: Opportunity) => { save({ ...run, selected: op, product: undefined, launch: undefined, audience: undefined, publishOn: undefined }); setStep(2); };
+  const pick = (op: Opportunity) => { save({ ...run, selected: op, plan: undefined, chat: [], product: undefined, launch: undefined, audience: undefined, publishOn: undefined }); setStep(2); };
 
   const stepState = (n: Step) => {
     const done = n === 1 ? !!run.selected : n === 2 ? !!run.product : !!run.launch;
@@ -321,25 +373,50 @@ export default function Generator() {
               {!run.selected && <div className="notice">Choose a product in Step 1 first.</div>}
               {run.selected && (
                 <>
-                  <p className="hint">Writes the complete, sellable product: cover page, what you get, every template and example filled in, how to use it. About {run.selected.time_to_create_hours} hours of your time including a read-through. Download as Word or Markdown.</p>
-                  <div className="row">
-                    <div>
-                      <label htmlFor="author">Author or brand name</label>
-                      <input id="author" type="text" value={run.author} onChange={(e) => setRun({ ...run, author: e.target.value })} placeholder="Norife Ramales, NorieDigi" />
+                  <p className="hint">First, a short planning conversation so the product sits on your real experience and what buyers need. Then one click writes the complete, sellable product: cover page, what you get, every template and example filled in. About {run.selected.time_to_create_hours} hours of your time including a read-through.</p>
+
+                  {(!run.plan || adjusting) && (
+                    <div className="planner">
+                      <div className="head"><b>Plan it with the assistant</b>{planning && <span className="spin dark" />}</div>
+                      <div className="chat" ref={chatRef}>
+                        {run.chat.map((m, i) => <div key={i} className={`msg ${m.role}`}>{m.content}</div>)}
+                        {run.chat.length === 0 && !planning && <div className="hint">Starting the conversation...</div>}
+                        {planning && <div className="msg assistant thinking">thinking</div>}
+                      </div>
+                      <form className="chatform" onSubmit={(e) => { e.preventDefault(); if (chatInput.trim() && !planning) void planTurn(run, chatInput, adjusting); }}>
+                        <textarea value={chatInput} onChange={(e) => setChatInput(e.target.value)} placeholder={adjusting ? "What should change in the plan?" : "Type your answer. Short and real beats long and polished."} rows={2} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (chatInput.trim() && !planning) void planTurn(run, chatInput, adjusting); } }} />
+                        <div className="actions" style={{ marginTop: 8 }}>
+                          <button type="submit" className="btn btn-primary btn-sm" disabled={planning || !chatInput.trim()}>{adjusting ? "Update the plan" : "Answer"}</button>
+                          {!adjusting && <button type="button" className="btn btn-gold btn-sm" disabled={planning} onClick={() => planTurn(run, chatInput, true)}>Make the plan now</button>}
+                          {!adjusting && <button type="button" className="btn btn-outline btn-sm" disabled={planning} onClick={() => save({ ...run, plan: undefined, chat: [{ role: "assistant", content: "Skipped planning. The product will follow the research and your profile." }] })}>Skip planning</button>}
+                          {adjusting && <button type="button" className="btn btn-outline btn-sm" onClick={() => setAdjusting(false)}>Keep the plan as is</button>}
+                        </div>
+                      </form>
                     </div>
-                    <div>
-                      <label htmlFor="len">Size</label>
-                      <select id="len" value={run.length} onChange={(e) => setRun({ ...run, length: e.target.value as Run["length"] })}>
-                        <option value="short">Short: checklist, prompt pack, or template set</option>
-                        <option value="standard">Standard: guide or template pack</option>
-                        <option value="long">Long: full ebook or course</option>
-                      </select>
+                  )}
+
+                  {run.plan && !adjusting && <PlanView plan={run.plan} onAdjust={() => setAdjusting(true)} />}
+
+                  <details style={{ marginTop: 14 }}><summary>Author, size, and voice</summary>
+                    <div className="row" style={{ marginTop: 8 }}>
+                      <div>
+                        <label htmlFor="author">Author or brand name</label>
+                        <input id="author" type="text" value={run.author} onChange={(e) => setRun({ ...run, author: e.target.value })} placeholder={profile.brand || profile.name || "Norife Ramales, NorieDigi"} />
+                      </div>
+                      <div>
+                        <label htmlFor="len">Size</label>
+                        <select id="len" value={run.length} onChange={(e) => setRun({ ...run, length: e.target.value as Run["length"] })}>
+                          <option value="short">Short: checklist, prompt pack, or template set</option>
+                          <option value="standard">Standard: guide or template pack</option>
+                          <option value="long">Long: full ebook or course</option>
+                        </select>
+                      </div>
                     </div>
-                  </div>
-                  <label htmlFor="voice">Your real experience to include (optional, makes it yours)</label>
-                  <textarea id="voice" value={run.voice} onChange={(e) => setRun({ ...run, voice: e.target.value })} placeholder="First person, plain words. 15 years running HR in the UAE. Include the onboarding mistake with the visa paperwork." />
+                    <label htmlFor="voice">Voice notes (optional)</label>
+                    <textarea id="voice" value={run.voice} onChange={(e) => setRun({ ...run, voice: e.target.value })} placeholder="First person, plain words. Taglish for OFW products." />
+                  </details>
                   <div className="actions">
-                    <button className="btn btn-primary btn-lg" onClick={() => doGenerate()} disabled={busy}>{busy ? <span className="spin" /> : null} {run.product ? "Create it again" : "Create the product"}</button>
+                    <button className="btn btn-primary btn-lg" onClick={() => doGenerate()} disabled={busy || planning}>{busy ? <span className="spin" /> : null} {run.product ? "Create it again" : run.plan ? "Create the product from this plan" : "Create the product"}</button>
                     <button className="btn btn-outline" onClick={() => setStep(1)}>Back to products</button>
                   </div>
                   <Log lines={log} busy={busy} />
@@ -396,6 +473,20 @@ export default function Generator() {
 
         <aside className="side">
           <div className="card">
+            <h3>About you</h3>
+            <p className="hint">The assistant reads this so it never asks twice. Saved in this browser.</p>
+            <label htmlFor="p-name">Name</label>
+            <input id="p-name" type="text" value={profile.name} onChange={(e) => setProfile({ ...profile, name: e.target.value })} placeholder="Norife Ramales" />
+            <label htmlFor="p-brand">Brand</label>
+            <input id="p-brand" type="text" value={profile.brand} onChange={(e) => setProfile({ ...profile, brand: e.target.value })} placeholder="NorieDigi" />
+            <label htmlFor="p-exp">What you have done</label>
+            <textarea id="p-exp" value={profile.experience} onChange={(e) => setProfile({ ...profile, experience: e.target.value })} placeholder="15 years HR and admin in the UAE. Onboarded 200 staff. Built AI automations for SMEs." rows={3} />
+            <label htmlFor="p-aud">Who you can reach</label>
+            <textarea id="p-aud" value={profile.audience} onChange={(e) => setProfile({ ...profile, audience: e.target.value })} placeholder="OFW Facebook groups, LinkedIn SME owners, email list of 300" rows={2} />
+            <label htmlFor="p-assets">What you already have</label>
+            <textarea id="p-assets" value={profile.assets} onChange={(e) => setProfile({ ...profile, assets: e.target.value })} placeholder="VA ebook, 50 prompts PDF, HR templates from past jobs" rows={2} />
+          </div>
+          <div className="card">
             <h3>Money plan</h3>
             <label htmlFor="goal">Monthly goal (USD)</label>
             <input id="goal" type="text" inputMode="numeric" value={run.goal} onChange={(e) => setRun({ ...run, goal: Number(e.target.value.replace(/[^0-9]/g, "")) || 0 })} />
@@ -412,6 +503,7 @@ export default function Generator() {
                 <tr><th>Search</th><td>{run.mode === "trending" ? "Top products this month" : run.category || "not set"}</td></tr>
                 <tr><th>Product</th><td>{run.selected?.name ?? "none yet"}</td></tr>
                 <tr><th>Time to make</th><td>{run.selected ? `about ${run.selected.time_to_create_hours} hours` : "..."}</td></tr>
+                <tr><th>Plan</th><td>{run.plan ? "agreed" : run.chat.length ? "in progress" : "not yet"}</td></tr>
                 <tr><th>Created</th><td>{run.product ? `${run.product.markdown.split(/\s+/).length.toLocaleString()} words` : "not yet"}</td></tr>
                 <tr><th>Publish on</th><td>{run.publishOn ?? "decided in Step 3"}</td></tr>
                 <tr><th>Launch kit</th><td>{run.launch ? "ready" : "not yet"}</td></tr>
@@ -432,6 +524,28 @@ export default function Generator() {
           </div>
         </aside>
       </div>
+    </div>
+  );
+}
+
+function PlanView({ plan, onAdjust }: { plan: ProductPlan; onAdjust: () => void }) {
+  return (
+    <div className="panel" style={{ marginTop: 14 }}>
+      <div className="head" style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
+        <h3>The plan: {plan.title}</h3>
+        <button className="btn btn-outline btn-sm" onClick={onAdjust}>Adjust</button>
+      </div>
+      <p><i>{plan.subtitle}</i></p>
+      <p className="kv"><b>Angle:</b> {plan.angle}</p>
+      <p className="kv"><b>For:</b> {plan.audience_detail}</p>
+      <p className="kv"><b>Format:</b> {plan.format}, {plan.length}. <b>Tone:</b> {plan.tone}. <b>Price:</b> {plan.price_suggestion.launch} then {plan.price_suggestion.regular} {plan.price_suggestion.currency}</p>
+      <p className="kv"><b>Outline</b></p>
+      <ol>{plan.outline.map((o) => <li key={o.section}><b>{o.section}:</b> {o.includes.join(", ")}</li>)}</ol>
+      {plan.must_include.length > 0 && <p className="kv"><b>Must include:</b> {plan.must_include.join("; ")}</p>}
+      {plan.seller_experience_to_use.length > 0 && <p className="kv"><b>Your experience going in:</b> {plan.seller_experience_to_use.join("; ")}</p>}
+      <p className="kv"><b>What makes it different:</b> {plan.differentiators.join("; ")}</p>
+      {plan.bonuses.length > 0 && <p className="kv"><b>Bonuses:</b> {plan.bonuses.join("; ")}</p>}
+      {plan.risks.length > 0 && <p className="kv"><b>Risks and answers:</b> {plan.risks.join("; ")}</p>}
     </div>
   );
 }

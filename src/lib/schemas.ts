@@ -101,7 +101,54 @@ export const LaunchResult = z.object({
   upsell_path: z.string(),
 });
 
+export const SellerProfile = z.object({
+  name: z.string().max(120).optional().default(""),
+  brand: z.string().max(120).optional().default(""),
+  experience: z.string().max(1500).optional().default("").describe("What the seller has actually done: jobs, years, industries, results"),
+  audience: z.string().max(600).optional().default("").describe("Who already listens to them or who they can reach"),
+  assets: z.string().max(800).optional().default("").describe("Things they already have: documents, templates, past products, an email list"),
+  goals: z.string().max(400).optional().default(""),
+});
+
+export const ProductPlan = z.object({
+  title: z.string(),
+  subtitle: z.string().describe("The promise in one line"),
+  angle: z.string().describe("Positioning in one sentence: why this one and not the generic version"),
+  audience_detail: z.string(),
+  format: z.string(),
+  length: z.enum(["short", "standard", "long"]),
+  outline: z.array(z.object({ section: z.string(), includes: z.array(z.string()) })).min(4),
+  must_include: z.array(z.string()).describe("Things the seller said must be inside"),
+  seller_experience_to_use: z.array(z.string()).describe("Specific stories, numbers, or examples from the seller to weave in"),
+  differentiators: z.array(z.string()),
+  tone: z.string(),
+  price_suggestion: z.object({ launch: z.number(), regular: z.number(), currency: z.string() }),
+  bonuses: z.array(z.string()).describe("Small add-ons that raise perceived value at low cost"),
+  risks: z.array(z.string()).describe("What could make this flop, and the plan's answer to each"),
+});
+
+export const ChatMessage = z.object({ role: z.enum(["user", "assistant"]), content: z.string().max(4000) });
+
+export const PlanInput = z.object({
+  opportunity: Opportunity,
+  profile: SellerProfile.optional(),
+  messages: z.array(ChatMessage).max(40).default([]),
+  finish: z.boolean().default(false).describe("True when the seller wants the plan now, whatever has been answered"),
+});
+
+export const PlanTurn = z.object({
+  reply: z.string().describe("What to say to the seller: a short reaction to their answer plus the next single question, or a wrap-up line when done"),
+  done: z.boolean(),
+  progress: z.number().min(0).max(1).describe("How close the plan is to complete"),
+  plan: ProductPlan.nullable(),
+});
+
 export type Evidence = z.infer<typeof Evidence>;
+export type SellerProfile = z.infer<typeof SellerProfile>;
+export type ProductPlan = z.infer<typeof ProductPlan>;
+export type ChatMessage = z.infer<typeof ChatMessage>;
+export type PlanInput = z.infer<typeof PlanInput>;
+export type PlanTurn = z.infer<typeof PlanTurn>;
 export type Opportunity = z.infer<typeof Opportunity>;
 export type ResearchResult = z.infer<typeof ResearchResult>;
 export type AudienceResult = z.infer<typeof AudienceResult>;
@@ -123,6 +170,8 @@ export const AudienceInput = z.object({
 export const GenerateInput = z.object({
   opportunity: Opportunity,
   audience: AudienceResult.optional(),
+  plan: ProductPlan.optional(),
+  profile: SellerProfile.optional(),
   length: z.enum(["short", "standard", "long"]).default("standard"),
   voice: z.string().max(600).optional().default(""),
   author: z.string().max(120).optional().default(""),

@@ -27,11 +27,11 @@ export async function POST(req: Request) {
     emit({ type: "status", text: `Writing ${input.opportunity.name}` });
     const markdown = await runStage({
       system: generateSystem(input.voice, input.author),
-      user: generateUser(input.opportunity, input.audience, input.length),
+      user: generateUser(input.opportunity, input.audience, input.plan?.length ?? input.length, input.plan, input.profile),
       emit,
       streamText: true,
-      effort: input.length === "long" ? "xhigh" : "high",
-      maxTokens: input.length === "long" ? 64000 : 40000,
+      effort: (input.plan?.length ?? input.length) === "long" ? "xhigh" : "high",
+      maxTokens: (input.plan?.length ?? input.length) === "long" ? 64000 : 40000,
     });
     emit({ type: "result", data: { markdown } });
   });

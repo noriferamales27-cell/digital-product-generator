@@ -147,3 +147,14 @@ summary { cursor: pointer; font-weight: 600; font-size: 14px; }
 @media (max-width: 900px) { .steps.three { grid-template-columns: 1fr; } }
 .btn-lg { font-size: 15px; padding: 14px 22px; }
 .linklike { all: unset; cursor: pointer; color: var(--primary); font-size: 13.5px; text-decoration: underline; margin-top: 14px; display: inline-block; }
+
+.planner { border: 1px solid var(--primary); border-radius: 12px; padding: 14px 16px; margin-top: 14px; background: #fff; }
+.planner .head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.chat { max-height: 320px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding: 4px 0; }
+.msg { max-width: 85%; padding: 9px 12px; border-radius: 12px; font-size: 14px; line-height: 1.5; white-space: pre-wrap; }
+.msg.assistant { background: var(--primary-light); color: var(--foreground); align-self: flex-start; border-bottom-left-radius: 4px; }
+.msg.user { background: var(--foreground); color: #fff; align-self: flex-end; border-bottom-right-radius: 4px; }
+.msg.thinking { color: #475569; font-style: italic; }
+.chatform { margin-top: 10px; }
+.chatform textarea { min-height: 56px; }
+.spin.dark { border-color: rgba(90,24,154,0.3); border-top-color: var(--primary); }
