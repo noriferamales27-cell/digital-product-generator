@@ -25,7 +25,7 @@ Open http://localhost:3000. To try the interface without spending API calls, set
 
 ## Deploy on Vercel
 
-1. Import this repository (or set the Root Directory to `product-generator` if it still lives inside the Noriedigi repo).
+1. Import this repository into Vercel.
 2. Add environment variables: `ANTHROPIC_API_KEY`, and `APP_PASSWORD` so only you can run it.
 3. Deploy. The research and generation routes set `maxDuration = 300`; on the Hobby plan the limit is lower, so if a long product times out, upgrade the plan or pick the short length.
 
@@ -48,14 +48,3 @@ src/lib/prompts.ts            the stage prompts and voice rules
 src/lib/schemas.ts            zod schemas for every stage
 docs/                         the plan, market scan, backlog, and launch playbook
 ```
-
-## Moving this into its own repo
-
-On GitHub, create an empty private repo named `digital-product-generator`, then from a clone of the Noriedigi branch:
-
-```
-git subtree split --prefix=product-generator -b product-generator-split
-git push git@github.com:noriferamales27-cell/digital-product-generator.git product-generator-split:main
-```
-
-Or tell Claude the repo exists and it will do the split and push.
