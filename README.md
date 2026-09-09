@@ -1,22 +1,57 @@
 # NorieDigi Digital Product Generator
 
-A repeatable system that researches what is selling, generates the product, packages it for sale, and ships a launch kit with it. Goal: take an idea to a sellable product in five working days, then sell it faster than a cold launch would.
+One app that does what the AED 7,000 "digital product generator" offers charge for, on your own stack:
 
-This folder is designed to become its own repository (`noriferamales27-cell/digital-product-generator`). Until that repo exists it lives here.
+1. **Research the market.** Type any category. Claude searches live marketplaces (Etsy, Gumroad, Notion, Whop, Amazon KDP) and communities, then returns 4 to 8 scored opportunities with price bands, competition, the gap to fill, and source links.
+2. **Find the buyers.** For the opportunity you pick, it finds the named groups, subreddits, hashtags, search terms, and marketplaces where those buyers already are, the words they use, hooks, outreach messages, and a posting plan.
+3. **Write the product.** It writes the whole thing in one pass: ebook, template pack, prompt pack, checklist, planner, spreadsheet spec, mini-course, or email course. Download as .docx or .md.
+4. **Launch kit.** Pricing, six-block sales page, marketplace listings with tags, five launch emails, social posts for the channels found in step 2, a 30-day calendar, and the upsell path.
 
-## Contents
+Runs are saved in the browser so you can come back to any product.
 
-| File | What it is |
-|---|---|
-| `PLAN.md` | The full plan: what the generator is, how it works, what to build first, and the 30/60/90 roadmap |
-| `research/market-scan-2026-09.md` | What is selling in 2026, price bands, platforms, and where NorieDigi has an edge |
-| `catalog/backlog.md` | Scored product backlog (ICE) with the first five products to ship |
-| `marketing/launch-playbook.md` | The sell-faster playbook: funnel, pre-launch, launch week, post-launch ladder |
+## Stack
+
+Next.js 16 (App Router) on Vercel, Anthropic SDK with Claude Opus 5 and the built-in web search tool, zod for schema-locked outputs, `docx` for Word export. No database in v1.
+
+## Run it locally
+
+```
+cp .env.example .env.local   # add ANTHROPIC_API_KEY
+npm install
+npm run dev
+```
+
+Open http://localhost:3000. To try the interface without spending API calls, set `MOCK_MODE=1` in `.env.local`.
+
+## Deploy on Vercel
+
+1. Import this repository (or set the Root Directory to `product-generator` if it still lives inside the Noriedigi repo).
+2. Add environment variables: `ANTHROPIC_API_KEY`, and `APP_PASSWORD` so only you can run it.
+3. Deploy. The research and generation routes set `maxDuration = 300`; on the Hobby plan the limit is lower, so if a long product times out, upgrade the plan or pick the short length.
+
+## Cost per run
+
+Each stage is one Claude call with web search where needed. A full run (research, audience, standard product, launch kit) uses roughly 60k to 120k output tokens plus search fees. Budget about one to three US dollars per complete product at Opus 5 pricing. That is the whole cost of the "generator".
+
+## Layout
+
+```
+src/app/page.tsx              the wizard
+src/components/Generator.tsx  four steps, run history, downloads
+src/app/api/research          step 1 (web search + ICE scoring)
+src/app/api/audience          step 2 (web search + channel map)
+src/app/api/generate          step 3 (streamed Markdown)
+src/app/api/launch            step 4 (launch kit JSON)
+src/app/api/export            Markdown to .docx
+src/lib/claude.ts             streaming loop, pause_turn resume, schema parse
+src/lib/prompts.ts            the stage prompts and voice rules
+src/lib/schemas.ts            zod schemas for every stage
+docs/                         the plan, market scan, backlog, and launch playbook
+```
 
 ## Moving this into its own repo
 
-1. On GitHub, create an empty private repo named `digital-product-generator` (no README).
-2. From a clone of this branch, run:
+On GitHub, create an empty private repo named `digital-product-generator`, then from a clone of the Noriedigi branch:
 
 ```
 git subtree split --prefix=product-generator -b product-generator-split
