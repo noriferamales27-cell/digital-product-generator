@@ -1,4 +1,4 @@
-import { authorized, mockMode } from "@/lib/auth";
+import { apiKeyFor, authorized, mockMode, modelFor } from "@/lib/auth";
 import { parseJson, runStage } from "@/lib/claude";
 import { mockPlanTurn } from "@/lib/mock";
 import { jsonError, streamResponse } from "@/lib/ndjson";
@@ -15,12 +15,14 @@ export async function POST(req: Request) {
   const input = parsed.data;
 
   return streamResponse(async (emit) => {
-    if (mockMode()) {
+    if (mockMode(req)) {
       await new Promise((r) => setTimeout(r, 500));
       emit({ type: "result", data: mockPlanTurn(input.opportunity.name, input.messages.length, input.finish) });
       return;
     }
     const text = await runStage({
+      apiKey: apiKeyFor(req),
+      model: modelFor(req),
       system: planSystem(),
       user: planUser(input.opportunity, input.profile, input.messages, input.finish),
       emit,

@@ -1,4 +1,4 @@
-import { authorized, mockMode } from "@/lib/auth";
+import { apiKeyFor, authorized, mockMode, modelFor } from "@/lib/auth";
 import { parseJson, runStage } from "@/lib/claude";
 import { mockResearch } from "@/lib/mock";
 import { jsonError, streamResponse } from "@/lib/ndjson";
@@ -16,7 +16,7 @@ export async function POST(req: Request) {
   if (input.mode === "category" && !input.category.trim()) return jsonError("Type a category, or switch to trending mode.");
 
   return streamResponse(async (emit) => {
-    if (mockMode()) {
+    if (mockMode(req)) {
       emit({ type: "status", text: "Mock mode" });
       emit({ type: "search", query: `${input.category} best sellers etsy` });
       await new Promise((r) => setTimeout(r, 600));
@@ -25,6 +25,8 @@ export async function POST(req: Request) {
     }
     emit({ type: "status", text: input.mode === "trending" ? "Scanning what is selling right now across categories" : `Researching ${input.category}` });
     const text = await runStage({
+      apiKey: apiKeyFor(req),
+      model: modelFor(req),
       system: researchSystem(),
       user: researchUser(input),
       emit,

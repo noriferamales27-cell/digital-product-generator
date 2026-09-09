@@ -1,4 +1,4 @@
-import { authorized, mockMode } from "@/lib/auth";
+import { apiKeyFor, authorized, mockMode, modelFor } from "@/lib/auth";
 import { runStage } from "@/lib/claude";
 import { mockProduct } from "@/lib/mock";
 import { jsonError, streamResponse } from "@/lib/ndjson";
@@ -15,7 +15,7 @@ export async function POST(req: Request) {
   const input = parsed.data;
 
   return streamResponse(async (emit) => {
-    if (mockMode()) {
+    if (mockMode(req)) {
       const text = mockProduct(input.opportunity.name);
       for (const chunk of text.match(/[\s\S]{1,80}/g) ?? []) {
         emit({ type: "delta", text: chunk });
@@ -26,6 +26,8 @@ export async function POST(req: Request) {
     }
     emit({ type: "status", text: `Writing ${input.opportunity.name}` });
     const markdown = await runStage({
+      apiKey: apiKeyFor(req),
+      model: modelFor(req),
       system: generateSystem(input.voice, input.author),
       user: generateUser(input.opportunity, input.audience, input.plan?.length ?? input.length, input.plan, input.profile),
       emit,

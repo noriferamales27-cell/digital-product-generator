@@ -1,4 +1,4 @@
-import { authorized, mockMode } from "@/lib/auth";
+import { apiKeyFor, authorized, mockMode, modelFor } from "@/lib/auth";
 import { parseJson, runStage } from "@/lib/claude";
 import { mockLaunch } from "@/lib/mock";
 import { jsonError, streamResponse } from "@/lib/ndjson";
@@ -15,13 +15,15 @@ export async function POST(req: Request) {
   const input = parsed.data;
 
   return streamResponse(async (emit) => {
-    if (mockMode()) {
+    if (mockMode(req)) {
       await new Promise((r) => setTimeout(r, 600));
       emit({ type: "result", data: mockLaunch(input.product_title) });
       return;
     }
     emit({ type: "status", text: `Building the launch kit for ${input.product_title}` });
     const text = await runStage({
+      apiKey: apiKeyFor(req),
+      model: modelFor(req),
       system: launchSystem(input.brand),
       user: launchUser(input),
       emit,

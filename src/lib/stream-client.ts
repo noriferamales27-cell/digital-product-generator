@@ -4,10 +4,31 @@ import type { StreamEvent } from "./schemas";
  * Posts to a generator route and yields each NDJSON event as it arrives.
  * Throws on HTTP errors and on an { type: "error" } event.
  */
+const KEY = "dpg.anthropicKey";
+export function getApiKey(): string {
+  try { return JSON.parse(localStorage.getItem(KEY) || '""'); } catch { return ""; }
+}
+export function setApiKey(key: string) {
+  try { localStorage.setItem(KEY, JSON.stringify(key.trim())); } catch {}
+}
+const MODEL_KEY = "dpg.model";
+export function getModel(): string {
+  try { return JSON.parse(localStorage.getItem(MODEL_KEY) || '"claude-opus-5"'); } catch { return "claude-opus-5"; }
+}
+export function setModel(m: string) {
+  try { localStorage.setItem(MODEL_KEY, JSON.stringify(m)); } catch {}
+}
+export function authHeaders(password: string): Record<string, string> {
+  const h: Record<string, string> = { "x-app-password": password, "x-model": getModel() };
+  const k = getApiKey();
+  if (k) h["x-anthropic-key"] = k;
+  return h;
+}
+
 export async function* streamStage(path: string, body: unknown, password: string): AsyncGenerator<StreamEvent> {
   const res = await fetch(path, {
     method: "POST",
-    headers: { "Content-Type": "application/json", "x-app-password": password },
+    headers: { "Content-Type": "application/json", ...authHeaders(password) },
     body: JSON.stringify(body),
   });
   if (!res.ok) {
@@ -52,7 +73,7 @@ export function downloadText(filename: string, text: string, mime = "text/markdo
 export async function downloadDocx(title: string, author: string, markdown: string, password: string) {
   const res = await fetch("/api/export", {
     method: "POST",
-    headers: { "Content-Type": "application/json", "x-app-password": password },
+    headers: { "Content-Type": "application/json", ...authHeaders(password) },
     body: JSON.stringify({ title, author, markdown }),
   });
   if (!res.ok) throw new Error("Export failed");

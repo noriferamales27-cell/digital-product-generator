@@ -5,15 +5,24 @@ import type { StreamEvent } from "./schemas";
 
 export const MODEL = "claude-opus-5";
 
-let cached: Anthropic | null = null;
-export function client(): Anthropic {
-  if (!cached) cached = new Anthropic();
-  return cached;
+const clients = new Map<string, Anthropic>();
+export function client(apiKey?: string): Anthropic {
+  const key = apiKey ?? process.env.ANTHROPIC_API_KEY ?? "";
+  let c = clients.get(key);
+  if (!c) {
+    c = apiKey ? new Anthropic({ apiKey }) : new Anthropic();
+    clients.set(key, c);
+  }
+  return c;
 }
 
 export type Emit = (event: StreamEvent) => void;
 
 type RunOptions = {
+  /** The user's own key, when they connected Claude inside the app. */
+  apiKey?: string;
+  /** Model chosen in the app. Defaults to Opus 5. */
+  model?: string;
   system: string;
   user: string;
   emit: Emit;
@@ -40,7 +49,7 @@ function extractText(message: Anthropic.Message): string {
  * Returns the full text of the final assistant message.
  */
 export async function runStage(opts: RunOptions): Promise<string> {
-  const anthropic = client();
+  const anthropic = client(opts.apiKey);
   const messages: Anthropic.MessageParam[] = [{ role: "user", content: opts.user }];
   const tools: Anthropic.ToolUnion[] = opts.webSearch
     ? [{ type: "web_search_20260209", name: "web_search", max_uses: opts.webSearch.maxUses }]
@@ -51,7 +60,7 @@ export async function runStage(opts: RunOptions): Promise<string> {
 
   for (let iteration = 0; iteration < 8; iteration++) {
     const params: Anthropic.MessageStreamParams = {
-      model: MODEL,
+      model: opts.model ?? MODEL,
       max_tokens: opts.maxTokens ?? 32000,
       system: opts.system,
       messages,
@@ -134,7 +143,9 @@ export function parseJson<T>(text: string, schema: z.ZodType<T>): T {
 }
 
 export function describeError(err: unknown): string {
-  if (err instanceof Anthropic.AuthenticationError) return "Anthropic API key is missing or invalid. Set ANTHROPIC_API_KEY.";
+  if (err instanceof Anthropic.AuthenticationError) return "Claude did not accept the API key. Reconnect Claude with a valid key from console.anthropic.com.";
+  if (err instanceof Anthropic.PermissionDeniedError) return "This API key is not allowed to use this model. Check the key's permissions in the Anthropic console.";
+  if (err instanceof Anthropic.APIError && err.status === 402) return "The Anthropic account has no credit. Add credits at console.anthropic.com, then try again.";
   if (err instanceof Anthropic.RateLimitError) return "Rate limited by the API. Wait a minute and try again.";
   if (err instanceof Anthropic.APIConnectionError) return "Could not reach the Anthropic API.";
   if (err instanceof Anthropic.APIError) return `API error ${err.status}: ${err.message}`;

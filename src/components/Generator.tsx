@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import Markdown from "./Markdown";
-import { downloadDocx, downloadText, slug, streamStage } from "@/lib/stream-client";
+import { authHeaders, downloadDocx, downloadText, getApiKey, getModel, setApiKey, setModel, slug, streamStage } from "@/lib/stream-client";
 import type { AudienceResult, ChatMessage, LaunchResult, Opportunity, PlanTurn, ProductPlan, ResearchResult, SellerProfile } from "@/lib/schemas";
 import { PLATFORMS, platformByName } from "@/lib/platforms";
 
@@ -82,7 +82,13 @@ export default function Generator() {
   const [draft, setDraft] = useState("");
   const [autopilot, setAutopilot] = useState(false);
   const [showCategory, setShowCategory] = useState(false);
-  const [status, setStatus] = useState<{ mock: boolean; passwordRequired: boolean } | null>(null);
+  const [status, setStatus] = useState<{ mock: boolean; passwordRequired: boolean; connected: boolean; source: "app" | "server" | "none" } | null>(null);
+  const [showConnect, setShowConnect] = useState(false);
+  const [keyInput, setKeyInput] = useState("");
+  const [model, setModelState] = useState("claude-opus-5");
+  const [connectMsg, setConnectMsg] = useState("");
+
+  const refreshStatus = () => fetch("/api/status", { headers: authHeaders(password) }).then((r) => r.json()).then(setStatus).catch(() => setStatus(null));
   const [profile, setProfile] = useState<SellerProfile>(emptyProfile);
   const [chatInput, setChatInput] = useState("");
   const [planning, setPlanning] = useState(false);
@@ -94,8 +100,19 @@ export default function Generator() {
     setRuns(load<Run[]>(STORAGE, []));
     setPassword(load<string>(PASS, ""));
     setProfile({ ...emptyProfile, ...load<Partial<SellerProfile>>(PROFILE, {}) });
-    fetch("/api/status").then((r) => r.json()).then(setStatus).catch(() => setStatus(null));
+    setModelState(getModel());
+    void refreshStatus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const connect = () => {
+    const k = keyInput.trim();
+    if (k && !/^sk-ant-/.test(k)) { setConnectMsg("That does not look like an Anthropic key. It starts with sk-ant-."); return; }
+    setApiKey(k);
+    setKeyInput("");
+    setConnectMsg(k ? "Connected. Your key stays in this browser and is sent only to this app's own API routes." : "Disconnected.");
+    void refreshStatus();
+  };
 
   useEffect(() => {
     try { localStorage.setItem(PASS, JSON.stringify(password)); } catch {}
@@ -268,19 +285,51 @@ export default function Generator() {
           <div className="hint">Find what sells, create a professional product, publish where the buyers are.</div>
         </div>
         <div className="right">
-          <input type="password" placeholder="App password" value={password} onChange={(e) => setPassword(e.target.value)} style={{ width: 160 }} aria-label="App password" />
+          <button className={`btn btn-sm ${status?.connected ? "btn-outline" : "btn-gold"}`} onClick={() => setShowConnect((v) => !v)}>
+            <span className={`dot ${status?.connected ? "on" : ""}`} /> {status?.connected ? `Claude connected (${status.source === "app" ? "your key" : "server key"})` : "Connect Claude"}
+          </button>
           <Link className="btn btn-outline btn-sm" href="/playbook">Playbook</Link>
           <button className="btn btn-outline btn-sm" onClick={() => { setRun(newRun()); setStep(1); setError(""); setLog([]); }}>New</button>
         </div>
       </header>
 
-      {status?.mock && (
-        <div className="notice" style={{ marginTop: 0, marginBottom: 20 }}>
-          <b>Demo mode.</b> No Anthropic API key is set, so every step shows sample data. Add <code>ANTHROPIC_API_KEY</code> and <code>APP_PASSWORD</code> in Vercel to run real research.
+      {showConnect && (
+        <div className="card connect" style={{ marginBottom: 20 }}>
+          <h3>Connect Claude</h3>
+          <p className="hint">Paste your Anthropic API key. It is saved in this browser only and sent to this app's own routes, never anywhere else. Get one at <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a> (create a key, then add a few dollars of credit under Billing). A full product run costs about one to three US dollars on Opus 5.</p>
+          <div className="row">
+            <div>
+              <label htmlFor="apikey">API key</label>
+              <input id="apikey" type="password" value={keyInput} onChange={(e) => setKeyInput(e.target.value)} placeholder={getApiKey() ? "Key saved. Paste a new one to replace it." : "sk-ant-..."} autoComplete="off" />
+            </div>
+            <div>
+              <label htmlFor="model">Model</label>
+              <select id="model" value={model} onChange={(e) => { setModelState(e.target.value); setModel(e.target.value); }}>
+                <option value="claude-opus-5">Claude Opus 5 (best quality, default)</option>
+                <option value="claude-sonnet-5">Claude Sonnet 5 (faster, about 60% cheaper)</option>
+              </select>
+            </div>
+          </div>
+          {status?.passwordRequired && (
+            <>
+              <label htmlFor="pw">App password (set by the owner in Vercel)</label>
+              <input id="pw" type="password" value={password} onChange={(e) => setPassword(e.target.value)} aria-label="App password" />
+            </>
+          )}
+          <div className="actions">
+            <button className="btn btn-primary" onClick={connect} disabled={!keyInput.trim() && !getApiKey()}>{getApiKey() && !keyInput.trim() ? "Disconnect" : "Save and connect"}</button>
+            <button className="btn btn-outline" onClick={() => setShowConnect(false)}>Close</button>
+          </div>
+          {connectMsg && <div className="notice">{connectMsg}</div>}
         </div>
       )}
-      {status && !status.passwordRequired && !status.mock && (
-        <div className="notice" style={{ marginTop: 0, marginBottom: 20 }}><b>Open access.</b> Set <code>APP_PASSWORD</code> in Vercel so only you can spend your API credits.</div>
+      {status?.mock && (
+        <div className="notice" style={{ marginTop: 0, marginBottom: 20 }}>
+          <b>Demo mode.</b> Claude is not connected, so every step shows sample data. Click <b>Connect Claude</b> above and paste your API key to run real research.
+        </div>
+      )}
+      {status && !status.passwordRequired && status.source === "server" && (
+        <div className="notice" style={{ marginTop: 0, marginBottom: 20 }}><b>Open access.</b> The server key is set without <code>APP_PASSWORD</code>. Set one in Vercel so only you can spend those credits.</div>
       )}
 
       <ol className="steps three">

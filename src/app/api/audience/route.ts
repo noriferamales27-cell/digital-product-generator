@@ -1,4 +1,4 @@
-import { authorized, mockMode } from "@/lib/auth";
+import { apiKeyFor, authorized, mockMode, modelFor } from "@/lib/auth";
 import { parseJson, runStage } from "@/lib/claude";
 import { mockAudience } from "@/lib/mock";
 import { jsonError, streamResponse } from "@/lib/ndjson";
@@ -15,7 +15,7 @@ export async function POST(req: Request) {
   const { opportunity, region } = parsed.data;
 
   return streamResponse(async (emit) => {
-    if (mockMode()) {
+    if (mockMode(req)) {
       emit({ type: "search", query: `${opportunity.audience} facebook group` });
       await new Promise((r) => setTimeout(r, 600));
       emit({ type: "result", data: mockAudience(opportunity.name) });
@@ -23,6 +23,8 @@ export async function POST(req: Request) {
     }
     emit({ type: "status", text: `Finding buyers for ${opportunity.name}` });
     const text = await runStage({
+      apiKey: apiKeyFor(req),
+      model: modelFor(req),
       system: audienceSystem(),
       user: audienceUser(opportunity, region),
       emit,
