@@ -415,7 +415,7 @@ export default function Generator() {
             <h3>This run</h3>
             <table className="grid">
               <tbody>
-                <tr><th>Category</th><td>{run.category || "not set"}</td></tr>
+                <tr><th>Category</th><td>{run.mode === "trending" ? "Trending across categories" : run.category || "not set"}</td></tr>
                 <tr><th>Picked</th><td>{run.selected?.name ?? "none yet"}</td></tr>
                 <tr><th>Time to make</th><td>{run.selected ? `about ${run.selected.time_to_create_hours} hours` : "..."}</td></tr>
                 <tr><th>Publish on</th><td>{run.publishOn ?? "choose in Step 4"}</td></tr>
